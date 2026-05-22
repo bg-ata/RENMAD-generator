@@ -16,10 +16,25 @@ LOGO_DIR   = os.path.join(ASSETS_DIR, "logos")
 BG_DIR     = os.path.join(ASSETS_DIR, "backgrounds")
 
 
+# Cap any input image at this pixel count to stay within Streamlit Cloud memory limits.
+# 16 megapixels = e.g. 4000x4000 or 5333x3000 — plenty for any logo/photo use case.
+_MAX_INPUT_PIXELS = 16_000_000
+
+
+def _shrink_if_huge(img: Image.Image) -> Image.Image:
+    """Resize image in-place if it exceeds the safe pixel budget."""
+    if img.width * img.height > _MAX_INPUT_PIXELS:
+        ratio = (_MAX_INPUT_PIXELS / (img.width * img.height)) ** 0.5
+        new_size = (int(img.width * ratio), int(img.height * ratio))
+        img.thumbnail(new_size, Image.LANCZOS)
+    return img
+
+
 def load_pil(uploaded) -> Image.Image | None:
     if uploaded is None:
         return None
-    return Image.open(io.BytesIO(uploaded.read())).convert("RGBA")
+    img = Image.open(io.BytesIO(uploaded.read())).convert("RGBA")
+    return _shrink_if_huge(img)
 
 
 
