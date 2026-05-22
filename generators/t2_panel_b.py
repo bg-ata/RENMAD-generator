@@ -96,10 +96,28 @@ def _person_silhouette(theme_rgb, col_w):
     return col
 
 
+_REMBG_MAX_PX = 2_000_000   # cap before background removal (speed + memory)
+
+
 def _prepare_cutout(photo_img, col_w):
     try:
         from rembg import remove
-        cutout = remove(photo_img.convert("RGBA"))
+        # Always feed rembg a plain RGB image — avoids misreading a fully-opaque
+        # RGBA PNG (common when photos are loaded from saved projects) as
+        # "background already removed", which would return an empty alpha channel.
+        src = photo_img.convert("RGB")
+        # Shrink very large photos before processing (prevents silent OOM failures)
+        if src.width * src.height > _REMBG_MAX_PX:
+            ratio   = (_REMBG_MAX_PX / (src.width * src.height)) ** 0.5
+            src = src.resize(
+                (max(1, int(src.width * ratio)), max(1, int(src.height * ratio))),
+                Image.LANCZOS,
+            )
+        cutout = remove(src)
+        if cutout is None:
+            return None
+        # Ensure we have RGBA output before splitting
+        cutout = cutout.convert("RGBA")
     except Exception:
         return None
     alpha  = cutout.split()[3]
