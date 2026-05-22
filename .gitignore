@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Streamlit local secrets — NEVER commit
+.streamlit/secrets.toml
+
+# Generated slide outputs (ephemeral on Streamlit Cloud anyway)
+saved_slides/
+
+# Debug / test artefacts
+test_output.png
+*.pptx
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
