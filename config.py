@@ -156,6 +156,15 @@ LANGUAGE_STRINGS = {
         "date_label": "FECHA",
         "time_label": "HORA",
         "hosted_by": "HOSTED BY:",
+        # Ingo (LinkedIn share)
+        "ingo_speaker_cta":  "ÚNETE A MI INTERVENCIÓN",
+        "ingo_attendee_cta": "NOS VEMOS EN",
+        "ingo_host_label":   "HOST",
+        "ingo_online":       "Online",
+        "weekdays":          ["Lunes", "Martes", "Miércoles", "Jueves",
+                              "Viernes", "Sábado", "Domingo"],
+        "months":            ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+                              "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
     },
     "en": {
         "cta_label": "Register for free today",
@@ -172,6 +181,15 @@ LANGUAGE_STRINGS = {
         "date_label": "DATE",
         "time_label": "TIME",
         "hosted_by": "HOSTED BY:",
+        # Ingo (LinkedIn share)
+        "ingo_speaker_cta":  "JOIN MY SESSION",
+        "ingo_attendee_cta": "SEE YOU AT",
+        "ingo_host_label":   "HOST",
+        "ingo_online":       "Online",
+        "weekdays":          ["Monday", "Tuesday", "Wednesday", "Thursday",
+                              "Friday", "Saturday", "Sunday"],
+        "months":            ["january", "february", "march", "april", "may", "june",
+                              "july", "august", "september", "october", "november", "december"],
     },
     "it": {
         "cta_label": "Registrati gratuitamente oggi",
@@ -188,6 +206,15 @@ LANGUAGE_STRINGS = {
         "date_label": "DATA",
         "time_label": "ORA",
         "hosted_by": "HOSTED BY:",
+        # Ingo (LinkedIn share)
+        "ingo_speaker_cta":  "PARTECIPA AL MIO INTERVENTO",
+        "ingo_attendee_cta": "CI VEDIAMO A",
+        "ingo_host_label":   "HOST",
+        "ingo_online":       "Online",
+        "weekdays":          ["Lunedì", "Martedì", "Mercoledì", "Giovedì",
+                              "Venerdì", "Sabato", "Domenica"],
+        "months":            ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+                              "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"],
     },
     "pl": {
         "cta_label": "Zarejestruj się bezpłatnie",
@@ -204,6 +231,15 @@ LANGUAGE_STRINGS = {
         "date_label": "DATA",
         "time_label": "GODZINA",
         "hosted_by": "HOSTED BY:",
+        # Ingo (LinkedIn share)
+        "ingo_speaker_cta":  "DOŁĄCZ DO MOJEJ SESJI",
+        "ingo_attendee_cta": "DO ZOBACZENIA NA",
+        "ingo_host_label":   "HOST",
+        "ingo_online":       "Online",
+        "weekdays":          ["Poniedziałek", "Wtorek", "Środa", "Czwartek",
+                              "Piątek", "Sobota", "Niedziela"],
+        "months":            ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca",
+                              "lipca", "sierpnia", "września", "października", "listopada", "grudnia"],
     },
 }
 

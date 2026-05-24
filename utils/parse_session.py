@@ -115,14 +115,40 @@ def _simple_parse(text: str) -> dict:
     cta_url      = ""
     speaker_lines = []
 
+    # Track when the title block has ended. A title can span multiple lines
+    # until we hit (a) a blank line or (b) a line that looks like metadata,
+    # a CTA/URL, or a speaker entry. Without this, multi-line titles like
+    # "Distribución y demanda:\nel dilema de la bancabilidad…" lose the 2nd line.
+    title_open = True
+
     for line in lines:
-        if not line or line.startswith(("•", "-", "·", "*")):
+        if not line:
+            # Blank line ends the title block
+            title_open = False
+            continue
+        if line.startswith(("•", "-", "·", "*")):
             continue
 
         # First non-empty non-bullet line = session title
         if not title:
             title = line
             continue
+
+        # ── Multi-line title continuation ────────────────────────────────
+        # Append to title only if we haven't yet hit a blank line and the
+        # current line isn't metadata, a CTA/URL, or a speaker entry.
+        if title_open:
+            looks_metadata = _is_metadata_line(line)
+            looks_cta = bool(_CTA_PREFIX_RE.match(line)) or bool(_URL_RE.search(line))
+            looks_speaker = (
+                "," in line
+                and _looks_like_name(line.split(",")[0].strip())
+            )
+            if not looks_metadata and not looks_cta and not looks_speaker:
+                title = title + "\n" + line
+                continue
+            # Otherwise the title block has implicitly ended
+            title_open = False
 
         # CTA / URL detection — check before speaker parsing
         if not cta_url:

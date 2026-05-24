@@ -668,13 +668,14 @@ with bg_col_upload:
 # ── Generate ──────────────────────────────────────────────────────────────────
 
 st.markdown("")
-gc1, gc2, gc3, gc4 = st.columns(4)
+gc1, gc2, gc3, gc4, gc5 = st.columns(5)
 btn_slide    = gc1.button("🎨 Generate Slide",     type="primary", use_container_width=True)
 btn_linkedin = gc2.button("💼 Generate LinkedIn",  type="primary", use_container_width=True)
 btn_mini     = gc3.button("🖼️ Generate Miniature", type="primary", use_container_width=True)
-btn_all      = gc4.button("⚡ Generate All Three", type="primary", use_container_width=True)
+btn_ingo     = gc4.button("🌐 Generate Ingo",      type="primary", use_container_width=True)
+btn_all      = gc5.button("⚡ Generate All",        type="primary", use_container_width=True)
 
-if btn_slide or btn_linkedin or btn_mini or btn_all:
+if btn_slide or btn_linkedin or btn_mini or btn_ingo or btn_all:
     if not session_title and not speakers_text:
         st.warning("Add at least a session title or one speaker first.")
     else:
@@ -707,6 +708,7 @@ if btn_slide or btn_linkedin or btn_mini or btn_all:
                 do_slide    = btn_slide    or btn_all
                 do_linkedin = btn_linkedin or btn_all
                 do_mini     = btn_mini     or btn_all
+                do_ingo     = btn_ingo     or btn_all
 
                 # ── Always stash photos/logos/bg/theme for Save feature ───────
                 # Do this before any generation so Save works even if only
@@ -743,6 +745,14 @@ if btn_slide or btn_linkedin or btn_mini or btn_all:
                     st.session_state["last_mini_png"]  = mini_png
                     st.session_state["last_mini_pptx"] = mini_pptx
 
+                # ── Ingo (LinkedIn share pack: 1 per speaker + 1 attendee) ───
+                if do_ingo:
+                    from generators.ingo_webinar import generate_all as gen_ingo_all
+                    ingo_pack = gen_ingo_all(
+                        session, theme, language, bg_image, renmad_logo,
+                    )
+                    st.session_state["last_ingo_pack"] = ingo_pack
+
             except Exception as e:
                 st.error(f"Generation error: {e}")
                 import traceback; st.code(traceback.format_exc())
@@ -756,12 +766,15 @@ li_pptx_bytes = st.session_state.get("last_linkedin_pptx")
 li_png_bytes  = st.session_state.get("last_linkedin_png")
 mini_png      = st.session_state.get("last_mini_png")
 mini_pptx     = st.session_state.get("last_mini_pptx")
+ingo_pack     = st.session_state.get("last_ingo_pack") or {}
 
-has_any = any([png_bytes, li_png_bytes, mini_png])
+has_any = any([png_bytes, li_png_bytes, mini_png, ingo_pack])
 
 if has_any:
     st.divider()
-    tab_slide, tab_li, tab_mini = st.tabs(["🎨 Slide", "💼 LinkedIn", "🖼️ Miniature"])
+    tab_slide, tab_li, tab_mini, tab_ingo = st.tabs(
+        ["🎨 Slide", "💼 LinkedIn", "🖼️ Miniature", "🌐 Ingo"]
+    )
 
     # ── Slide tab ─────────────────────────────────────────────────────────────
     with tab_slide:
@@ -790,7 +803,7 @@ if has_any:
                     mime="application/zip", use_container_width=True,
                 )
         else:
-            st.caption("Click **🎨 Generate Slide** or **⚡ Generate All Three** to create this.")
+            st.caption("Click **🎨 Generate Slide** or **⚡ Generate All** to create this.")
 
     # ── LinkedIn tab ──────────────────────────────────────────────────────────
     with tab_li:
@@ -819,7 +832,7 @@ if has_any:
                     mime="application/zip", use_container_width=True,
                 )
         else:
-            st.caption("Click **💼 Generate LinkedIn** or **⚡ Generate All Three** to create this.")
+            st.caption("Click **💼 Generate LinkedIn** or **⚡ Generate All** to create this.")
 
     # ── Miniature tab ─────────────────────────────────────────────────────────
     with tab_mini:
@@ -839,7 +852,46 @@ if has_any:
                     use_container_width=True,
                 )
         else:
-            st.caption("Click **🖼️ Generate Miniature** or **⚡ Generate All Three** to create this.")
+            st.caption("Click **🖼️ Generate Miniature** or **⚡ Generate All** to create this.")
+
+    # ── Ingo tab ──────────────────────────────────────────────────────────────
+    with tab_ingo:
+        if ingo_pack:
+            spk_png = ingo_pack.get("ingo_speaker.png")
+            att_png = ingo_pack.get("ingo_attendee.png")
+
+            col_s, col_a = st.columns(2)
+            with col_s:
+                st.markdown("**Speaker template**")
+                if spk_png:
+                    st.image(spk_png, use_container_width=True)
+                    st.download_button(
+                        "Download speaker PNG", data=spk_png,
+                        file_name=f"RENMAD_{theme_choice}_ingo_speaker.png",
+                        mime="image/png", use_container_width=True,
+                        key="dl_ingo_speaker",
+                    )
+            with col_a:
+                st.markdown("**Attendee template**")
+                if att_png:
+                    st.image(att_png, use_container_width=True)
+                    st.download_button(
+                        "Download attendee PNG", data=att_png,
+                        file_name=f"RENMAD_{theme_choice}_ingo_attendee.png",
+                        mime="image/png", use_container_width=True,
+                        key="dl_ingo_attendee",
+                    )
+
+            zip_payload = {f"RENMAD_{theme_choice}_{n}": b for n, b in ingo_pack.items()}
+            st.download_button(
+                "📦 Download both Ingo templates (ZIP)",
+                data=make_zip(zip_payload),
+                file_name=f"RENMAD_{theme_choice}_ingo_pack.zip",
+                mime="application/zip", use_container_width=True,
+            )
+            st.caption("Templates intentionally have an empty circle — Ingo overlays the sharer's LinkedIn picture there.")
+        else:
+            st.caption("Click **🌐 Generate Ingo** or **⚡ Generate All** to create the speaker + attendee LinkedIn templates.")
 
     # ── Download ALL as ZIP ───────────────────────────────────────────────────
     all_files = {}
@@ -849,6 +901,8 @@ if has_any:
     if li_pptx_bytes: all_files[f"RENMAD_{theme_choice}_linkedin.pptx"]  = li_pptx_bytes
     if mini_png:      all_files[f"RENMAD_{theme_choice}_miniature.png"]  = mini_png
     if mini_pptx:    all_files[f"RENMAD_{theme_choice}_miniature.pptx"] = mini_pptx
+    for n, b in ingo_pack.items():
+        all_files[f"RENMAD_{theme_choice}_{n}"] = b
 
     if len(all_files) > 2:
         st.download_button(

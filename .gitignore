@@ -15,6 +15,7 @@ saved_slides/
 # Debug / test artefacts
 test_output.png
 *.pptx
+ingo_preview/
 
 # OS junk
 .DS_Store

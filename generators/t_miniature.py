@@ -336,9 +336,27 @@ def generate(
         canvas.paste(al, (W - alw - 20, 16), mask=al)
 
     # ── Title (centred) ───────────────────────────────────────────────────────
+    # Auto-shrink so the full title always fits — never truncate.
+    # Respect explicit '\n' line breaks (preserved by wrap_title).
     title_text = session.get("title", "").upper()
+    title_w    = W - 160
     title_f    = _f("heavy", 52)
-    t_lines    = wrap_title(draw, title_text, title_f, W - 160, max_lines=2)
+    t_lines    = wrap_title(draw, title_text, title_f, title_w, max_lines=4)
+    # If we got more lines than wanted (truncation), step the font down until
+    # the WHOLE title fits in ≤ 3 lines.
+    for _size in (48, 44, 40, 36, 32, 28):
+        # `wrap_title` would have truncated at max_lines=4 above. Recompute the
+        # untruncated wrap directly to detect the real line count.
+        f_try = _f("heavy", _size)
+        all_lines = wrap_title(draw, title_text, f_try, title_w, max_lines=20)
+        if len(all_lines) <= 3:
+            title_f = f_try
+            t_lines = all_lines
+            break
+    else:
+        # Last resort: keep min font and render every line we got (no truncation)
+        title_f = _f("heavy", 28)
+        t_lines = wrap_title(draw, title_text, title_f, title_w, max_lines=20)
 
     ty = TITLE_TOP
     for line in t_lines:
