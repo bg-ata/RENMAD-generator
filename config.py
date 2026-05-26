@@ -165,6 +165,10 @@ LANGUAGE_STRINGS = {
                               "Viernes", "Sábado", "Domingo"],
         "months":            ["enero", "febrero", "marzo", "abril", "mayo", "junio",
                               "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+        "months_short":      ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
+                              "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"],
+        # Event Marketing Pack
+        "event_cta":         "¡Obtén tu pase ahora!",
     },
     "en": {
         "cta_label": "Register for free today",
@@ -190,6 +194,10 @@ LANGUAGE_STRINGS = {
                               "Friday", "Saturday", "Sunday"],
         "months":            ["january", "february", "march", "april", "may", "june",
                               "july", "august", "september", "october", "november", "december"],
+        "months_short":      ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                              "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"],
+        # Event Marketing Pack
+        "event_cta":         "Get your pass today!",
     },
     "it": {
         "cta_label": "Registrati gratuitamente oggi",
@@ -215,6 +223,10 @@ LANGUAGE_STRINGS = {
                               "Venerdì", "Sabato", "Domenica"],
         "months":            ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
                               "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"],
+        "months_short":      ["GEN", "FEB", "MAR", "APR", "MAG", "GIU",
+                              "LUG", "AGO", "SET", "OTT", "NOV", "DIC"],
+        # Event Marketing Pack
+        "event_cta":         "Acquista subito il tuo pass!",
     },
     "pl": {
         "cta_label": "Zarejestruj się bezpłatnie",
@@ -240,6 +252,10 @@ LANGUAGE_STRINGS = {
                               "Piątek", "Sobota", "Niedziela"],
         "months":            ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca",
                               "lipca", "sierpnia", "września", "października", "listopada", "grudnia"],
+        "months_short":      ["STY", "LUT", "MAR", "KWI", "MAJ", "CZE",
+                              "LIP", "SIE", "WRZ", "PAŹ", "LIS", "GRU"],
+        # Event Marketing Pack
+        "event_cta":         "Zdobądź swój bilet już dziś!",
     },
 }
 

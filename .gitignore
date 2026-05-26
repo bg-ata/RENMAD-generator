@@ -11,11 +11,13 @@ env/
 
 # Generated slide outputs (ephemeral on Streamlit Cloud anyway)
 saved_slides/
+event_data/
 
 # Debug / test artefacts
 test_output.png
 *.pptx
 ingo_preview/
+event_preview/
 
 # OS junk
 .DS_Store
