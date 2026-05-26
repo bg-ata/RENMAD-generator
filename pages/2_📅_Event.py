@@ -307,8 +307,7 @@ st.subheader("1. Event setup")
 
 c1, c2, c3 = st.columns([2, 1.2, 1])
 default_name = (loaded_event or {}).get("name", "")
-event_name = c1.text_input("Event name", value=default_name,
-                            placeholder="e.g. RENMAD Hidrógeno", key="ev_name")
+event_name = c1.text_input("Event name", value=default_name, key="ev_name")
 
 theme_keys = sorted(THEMES.keys(), key=lambda k: THEMES[k]["name"])
 default_theme = (loaded_event or {}).get("theme_key", "datacenters")
@@ -366,7 +365,7 @@ else:
 
 location = c5.text_input("Location",
                           value=(loaded_event or {}).get("location", ""),
-                          placeholder="e.g. Zaragoza", key="ev_loc")
+                          key="ev_loc")
 
 # Preview the auto-localised date (so the user sees what will end up on the banner)
 from generators.event_marketing_pack import _format_event_date
