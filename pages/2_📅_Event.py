@@ -1027,6 +1027,7 @@ def _build_ingo_tiers(partners_sorted_list, pool_bytes):
 
 # ── Generate all Ingo variants button ────────────────────────────────────────
 from generators.t_ingo import generate_all_variants as _gen_all_ingos, ALL_VARIANTS as _INGO_VARIANTS
+from generators.t_logowall import generate_all_variants as _gen_logowall
 
 _VARIANT_CAPTIONS = {
     "":          "Event",
@@ -1194,3 +1195,133 @@ if _ingos_es or _ingos_en:
                 use_container_width=True,
                 key=f"dl_ingo_en_{_v or 'event'}",
             )
+
+
+# ── Logo Wall ─────────────────────────────────────────────────────────────────
+st.divider()
+st.subheader("🖼️ Logo Wall — 1 920 px wide")
+
+_lw_spk_files = st.file_uploader(
+    "Speaker / attendee logos (optional — shown in 'Confirmed Speakers' section)",
+    accept_multiple_files=True,
+    type=["png", "jpg", "jpeg"],
+    key=f"lw_spk_upload_{_eid_i}",
+    label_visibility="visible",
+)
+
+_lw_speaker_imgs = []
+if _lw_spk_files:
+    for _sf in _lw_spk_files:
+        try:
+            _lw_speaker_imgs.append(Image.open(io.BytesIO(_sf.getvalue())).convert("RGBA"))
+        except Exception:
+            st.warning(f"Could not open {_sf.name} — skipped.")
+_lw_speakers = [{"name": "speakers", "logos": _lw_speaker_imgs}] if _lw_speaker_imgs else []
+if _lw_speaker_imgs:
+    st.caption(f"{len(_lw_speaker_imgs)} speaker logo(s) loaded")
+
+lw1, lw2 = st.columns([1, 3])
+_gen_lw_btn = lw1.button(
+    "🖼️ Generate Logo Wall", type="primary",
+    use_container_width=True,
+    disabled=not event_name,
+)
+lw2.caption("Genera el logo wall ES + EN en 1 920 px — sponsors del evento ordenados por tier.")
+
+if _gen_lw_btn:
+    _lw_tiers, _lw_secondary = _build_ingo_tiers(partners_clean_sorted, logo_pool)
+
+    _logo_dir2   = os.path.normpath(os.path.join(_HERE, "..", "assets", "logos"))
+    _renmad_lw   = None
+    for _rname in ("logo_renmad_events.png", "renmad_logo.png", "logo_renmad.png"):
+        _rpath = os.path.join(_logo_dir2, _rname)
+        if os.path.exists(_rpath):
+            try:
+                _renmad_lw = Image.open(_rpath).convert("RGBA")
+            except Exception:
+                pass
+            break
+
+    _lw_theme = THEMES[theme_key]
+    _lw_event = {"title": event_name, "date_str": "", "location": location or ""}
+
+    with st.spinner("Generating logo wall…"):
+        try:
+            _lw_result = _gen_logowall(
+                event=_lw_event,
+                tiers=_lw_tiers,
+                secondary=_lw_secondary,
+                speakers=_lw_speakers,
+                theme=_lw_theme,
+                language=language,
+                renmad_logo=_renmad_lw,
+            )
+            st.session_state["_last_logowall"]      = _lw_result
+            st.session_state["_last_logowall_name"] = _slugify(event_name)
+        except Exception as _lw_err:
+            st.error(f"Logo wall generation failed: {_lw_err}")
+            import traceback
+            st.code(traceback.format_exc())
+
+# ── Logo wall preview & download ──────────────────────────────────────────────
+_lw_result = st.session_state.get("_last_logowall")
+if _lw_result:
+    _lw_slug = st.session_state.get("_last_logowall_name", "event")
+    st.divider()
+
+    _lw_col_es, _lw_col_en = st.columns(2)
+    with _lw_col_es:
+        st.markdown("**🇪🇸 Español**")
+        if "es" in _lw_result:
+            st.image(_lw_result["es"], use_container_width=True)
+            st.download_button(
+                "⬇️ Download ES",
+                data=_lw_result["es"],
+                file_name=f"{_lw_slug}_logowall_es.png",
+                mime="image/png",
+                use_container_width=True,
+                key="dl_lw_es",
+            )
+    with _lw_col_en:
+        st.markdown("**🇬🇧 English**")
+        if "en" in _lw_result:
+            st.image(_lw_result["en"], use_container_width=True)
+            st.download_button(
+                "⬇️ Download EN",
+                data=_lw_result["en"],
+                file_name=f"{_lw_slug}_logowall_en.png",
+                mime="image/png",
+                use_container_width=True,
+                key="dl_lw_en",
+            )
+
+    # ZIP
+    _lw_zip = io.BytesIO()
+    with zipfile.ZipFile(_lw_zip, "w", zipfile.ZIP_DEFLATED) as _zf:
+        for _lang, _data in _lw_result.items():
+            _zf.writestr(f"{_lw_slug}_logowall_{_lang}.png", _data)
+    st.download_button(
+        "📦 Download both (ZIP)",
+        data=_lw_zip.getvalue(),
+        file_name=f"{_lw_slug}_logowall.zip",
+        mime="application/zip",
+        use_container_width=True,
+        key="dl_lw_zip",
+    )
+
+    # Save to event folder
+    _lw_save_btn = st.button(
+        "💾 Save Logo Wall to event folder",
+        disabled=not active_event_id,
+        key="save_lw_btn",
+        help=f"Saves PNGs to event_data/{active_event_id}/logowall/",
+    )
+    if _lw_save_btn and active_event_id:
+        _lw_dir = os.path.join(_event_dir(active_event_id), "logowall")
+        os.makedirs(_lw_dir, exist_ok=True)
+        _lw_saved = 0
+        for _lang, _data in _lw_result.items():
+            with open(os.path.join(_lw_dir, f"logowall_{_lang}.png"), "wb") as _fh:
+                _fh.write(_data)
+            _lw_saved += 1
+        st.success(f"💾 Saved {_lw_saved} logo wall(s) to `{_lw_dir}`")
