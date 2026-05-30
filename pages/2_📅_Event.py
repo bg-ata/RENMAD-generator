@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import THEMES, LANGUAGE_STRINGS
 from generators.event_marketing_pack import generate_marketing_pack
+from generators.t_ingo import generate as _generate_ingo
 
 
 # ── Paths ────────────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ def _svg_to_png_bytes(svg_bytes: bytes, target_px: int = 1200) -> tuple:
 
 
 # ── Tier inference ───────────────────────────────────────────────────────────
-TIER_ORDER = ["diamond", "platinum", "global", "gold", "silver", "bronze", "standard"]
+TIER_ORDER = ["diamond", "platinum", "global", "gold", "silver", "bronze", "standard", "sponsor"]
 TIER_SET   = set(TIER_ORDER)
 
 
@@ -92,7 +93,7 @@ def role_to_banner_text(role: str) -> str:
         return "SPONSOR"
     lower = role.lower()
     if lower in TIER_SET:
-        if lower == "standard":
+        if lower in ("standard", "sponsor"):
             return "SPONSOR"
         return f"{role.upper()} SPONSOR"
     return role.upper()
@@ -249,6 +250,10 @@ if _last_evt != (active_event_id or "_new_"):
     # Reset bulk-paste accumulator and the data_editor version
     for k in list(st.session_state.keys()):
         if k.startswith("_partners_v_") or k.startswith("_partners_extras_") or k.startswith("bulk_paste_"):
+            del st.session_state[k]
+    # Reset Ingo stats / variant (scoped per-event via widget keys so these clear automatically)
+    for k in list(st.session_state.keys()):
+        if k.startswith("_ingo_"):
             del st.session_state[k]
 
     if loaded_event:
@@ -811,6 +816,12 @@ if ac3.button("🔄 Refresh", use_container_width=True):
     st.rerun()
 
 if save_btn:
+    _eid_s = active_event_id or 'new'
+    _saved_ingo_stats = [
+        {"num": st.session_state.get(f"_ingo_num_{i}_{_eid_s}", ""),
+         "label": st.session_state.get(f"_ingo_lab_{i}_{_eid_s}", "")}
+        for i in range(3)
+    ]
     event_payload = {
         "name":           event_name,
         "theme_key":      theme_key,
@@ -819,6 +830,7 @@ if save_btn:
         "end_date":       end_date.isoformat(),
         "location":       location,
         "bg_lib_choice":  st.session_state.get("ev_bg_choice", "(none)"),
+        "ingo_stats":     _saved_ingo_stats,
     }
     _save_event(ev_id_for_save, event_payload, partners_clean, logo_pool,
                 bg_image=bg_image)
@@ -903,3 +915,282 @@ if pack:
                     mime="image/png", use_container_width=True,
                     key=f"dl_{company}_{fname}",
                 )
+
+
+# ── Ingo (event infographic 1200×630) ────────────────────────────────────────
+st.divider()
+st.subheader("📸 Event Ingo — 1 200 × 630 px")
+st.caption(
+    "Infografía del evento con fondo blanco y círculo vacío para la foto del usuario. "
+    "Se generan los 4 formatos a la vez: evento, ponente, asistente y sponsor."
+)
+
+_eid_i = active_event_id or "new"
+
+# Defaults from saved event (or blank if new)
+_saved_ingo = (loaded_event or {}).get("ingo_stats", [
+    {"num": "", "label": "ATTENDEES"},
+    {"num": "", "label": "SPEAKERS"},
+    {"num": "", "label": "NETWORKING HOURS"},
+])
+
+# ── Stats row (3 editable metrics) ───────────────────────────────────────────
+st.markdown("**Event stats** — shown as icons + numbers in the Ingo:")
+is1, is2, is3 = st.columns(3)
+
+with is1:
+    st.caption("👥 Attendees")
+    ingo_num_0 = st.text_input(
+        "Attendees number", key=f"_ingo_num_0_{_eid_i}",
+        value=_saved_ingo[0].get("num", "") if _saved_ingo else "",
+        placeholder="e.g. 300+", label_visibility="collapsed",
+    )
+    ingo_lab_0 = st.text_input(
+        "Attendees label", key=f"_ingo_lab_0_{_eid_i}",
+        value=_saved_ingo[0].get("label", "ATTENDEES") if _saved_ingo else "ATTENDEES",
+        label_visibility="collapsed",
+    )
+
+with is2:
+    st.caption("🎤 Speakers")
+    ingo_num_1 = st.text_input(
+        "Speakers number", key=f"_ingo_num_1_{_eid_i}",
+        value=_saved_ingo[1].get("num", "") if len(_saved_ingo) > 1 else "",
+        placeholder="e.g. 40", label_visibility="collapsed",
+    )
+    ingo_lab_1 = st.text_input(
+        "Speakers label", key=f"_ingo_lab_1_{_eid_i}",
+        value=_saved_ingo[1].get("label", "SPEAKERS") if len(_saved_ingo) > 1 else "SPEAKERS",
+        label_visibility="collapsed",
+    )
+
+with is3:
+    st.caption("🤝 Networking")
+    ingo_num_2 = st.text_input(
+        "Networking number", key=f"_ingo_num_2_{_eid_i}",
+        value=_saved_ingo[2].get("num", "") if len(_saved_ingo) > 2 else "",
+        placeholder="e.g. 8", label_visibility="collapsed",
+    )
+    ingo_lab_2 = st.text_input(
+        "Networking label", key=f"_ingo_lab_2_{_eid_i}",
+        value=_saved_ingo[2].get("label", "NETWORKING HOURS") if len(_saved_ingo) > 2 else "NETWORKING HOURS",
+        label_visibility="collapsed",
+    )
+
+ingo_stats_current = [
+    {"num": ingo_num_0, "label": ingo_lab_0},
+    {"num": ingo_num_1, "label": ingo_lab_1},
+    {"num": ingo_num_2, "label": ingo_lab_2},
+]
+
+
+# ── Build tier / secondary lists from the partner table ───────────────────────
+def _build_ingo_tiers(partners_sorted_list, pool_bytes):
+    """Group partners into tiers (sponsors) and secondary (partners) for t_ingo."""
+    tier_map      = {}
+    secondary_map = {}
+
+    for p in partners_sorted_list:
+        role  = (p.get("Role") or "").strip()
+        fname = p.get("Logo file", "")
+        logo_img = None
+        if fname and fname != NO_LOGO and fname in pool_bytes:
+            try:
+                logo_img = Image.open(io.BytesIO(pool_bytes[fname])).convert("RGBA")
+            except Exception:
+                logo_img = None
+
+        gidx, _ = role_rank_key(role)
+        display  = role_to_banner_text(role)
+
+        if gidx == 0:   # named sponsor tier
+            tier_map.setdefault(display, [])
+            if logo_img:
+                tier_map[display].append(logo_img)
+        else:            # partner / host / media / other → secondary
+            secondary_map.setdefault(display, [])
+            if logo_img:
+                secondary_map[display].append(logo_img)
+
+    def _tier_sort(name):
+        lower = name.lower()
+        for i, t in enumerate(TIER_ORDER):
+            if t in lower:
+                return i
+        return 99
+
+    tiers     = [{"name": n, "logos": logos}
+                 for n, logos in sorted(tier_map.items(), key=lambda x: _tier_sort(x[0]))]
+    secondary = [{"name": n, "logos": logos} for n, logos in secondary_map.items()]
+    return tiers, secondary
+
+
+# ── Generate all Ingo variants button ────────────────────────────────────────
+from generators.t_ingo import generate_all_variants as _gen_all_ingos, ALL_VARIANTS as _INGO_VARIANTS
+
+_VARIANT_CAPTIONS = {
+    "":          "Event",
+    "ponente":   "Ponente / Speaker",
+    "asistente": "Asistente / Attendee",
+    "patro":     "Sponsor Oficial",
+}
+
+ig1, ig2 = st.columns([1, 3])
+gen_ingo_btn = ig1.button(
+    "📸 Generate all Ingos", type="primary",
+    use_container_width=True,
+    disabled=not event_name,
+)
+ig2.caption(
+    "Genera los 8 formatos a la vez — 4 en español + 4 en inglés "
+    "(Evento · Ponente · Asistente · Sponsor). "
+    "El círculo queda vacío para que cada persona añada su foto."
+)
+
+if gen_ingo_btn:
+    _tiers, _secondary = _build_ingo_tiers(partners_clean_sorted, logo_pool)
+
+    # RENMAD logo
+    _logo_dir    = os.path.normpath(os.path.join(_HERE, "..", "assets", "logos"))
+    _renmad_logo = None
+    for _rname in ("logo_renmad_events.png", "renmad_logo.png", "logo_renmad.png"):
+        _rpath = os.path.join(_logo_dir, _rname)
+        if os.path.exists(_rpath):
+            try:
+                _renmad_logo = Image.open(_rpath).convert("RGBA")
+            except Exception:
+                pass
+            break
+
+    _date_str_es = _format_event_date(
+        start_date.isoformat(), end_date.isoformat(), "es"
+    ).upper()
+    _date_str_en = _format_event_date(
+        start_date.isoformat(), end_date.isoformat(), "en"
+    ).upper()
+
+    _event_es = {
+        "title":    event_name,
+        "date_str": _date_str_es,
+        "location": location.upper() if location else "",
+    }
+    _event_en = {
+        "title":    event_name,
+        "date_str": _date_str_en,
+        "location": location.upper() if location else "",
+    }
+
+    from config import THEMES as _THEMES
+    _theme = _THEMES[theme_key]
+
+    with st.spinner("Generating 8 Ingo variants (ES + EN)…"):
+        try:
+            _ingos_es = _gen_all_ingos(
+                event=_event_es, stats=ingo_stats_current, tiers=_tiers,
+                secondary=_secondary, theme=_theme, language="es",
+                renmad_logo=_renmad_logo,
+            )
+            _ingos_en = _gen_all_ingos(
+                event=_event_en, stats=ingo_stats_current, tiers=_tiers,
+                secondary=_secondary, theme=_theme, language="en",
+                renmad_logo=_renmad_logo,
+            )
+            st.session_state["_last_ingos_es"]  = _ingos_es
+            st.session_state["_last_ingos_en"]  = _ingos_en
+            st.session_state["_last_ingo_name"] = _slugify(event_name)
+        except Exception as _ingo_err:
+            st.error(f"Ingo generation failed: {_ingo_err}")
+            import traceback
+            st.code(traceback.format_exc())
+
+# ── Ingo preview & download ───────────────────────────────────────────────────
+_ingos_es = st.session_state.get("_last_ingos_es")
+_ingos_en = st.session_state.get("_last_ingos_en")
+
+if _ingos_es or _ingos_en:
+    _ingo_slug = st.session_state.get("_last_ingo_name", "event")
+
+    # ── Action bar: ZIP download + Save ──────────────────────────────────────
+    _zia, _zib = st.columns(2)
+
+    # ZIP of all 8
+    _ingo_zip_buf = io.BytesIO()
+    with zipfile.ZipFile(_ingo_zip_buf, "w", zipfile.ZIP_DEFLATED) as _zf:
+        for _v, _b in (_ingos_es or {}).items():
+            _suffix = f"_{_v}" if _v else ""
+            _zf.writestr(f"{_ingo_slug}_ingo{_suffix}_es.png", _b)
+        for _v, _b in (_ingos_en or {}).items():
+            _suffix = f"_{_v}" if _v else ""
+            _zf.writestr(f"{_ingo_slug}_ingo{_suffix}_en.png", _b)
+    _zia.download_button(
+        "📦 Download all 8 Ingos (ZIP)",
+        data=_ingo_zip_buf.getvalue(),
+        file_name=f"{_ingo_slug}_ingos.zip",
+        mime="application/zip",
+        use_container_width=True,
+        key="dl_ingo_zip",
+    )
+
+    # Save to event folder
+    _save_ingo_btn = _zib.button(
+        "💾 Save Ingos to event folder",
+        use_container_width=True,
+        disabled=not active_event_id,
+        key="save_ingos_btn",
+        help="Saves all 8 PNGs to event_data/{event_id}/ingos/",
+    )
+    if _save_ingo_btn and active_event_id:
+        _ingo_dir = os.path.join(_event_dir(active_event_id), "ingos")
+        os.makedirs(_ingo_dir, exist_ok=True)
+        _saved_count = 0
+        for _v, _b in (_ingos_es or {}).items():
+            _suffix = f"_{_v}" if _v else ""
+            _fpath = os.path.join(_ingo_dir, f"ingo{_suffix}_es.png")
+            with open(_fpath, "wb") as _fh:
+                _fh.write(_b)
+            _saved_count += 1
+        for _v, _b in (_ingos_en or {}).items():
+            _suffix = f"_{_v}" if _v else ""
+            _fpath = os.path.join(_ingo_dir, f"ingo{_suffix}_en.png")
+            with open(_fpath, "wb") as _fh:
+                _fh.write(_b)
+            _saved_count += 1
+        st.success(f"💾 Saved {_saved_count} Ingos to `{_ingo_dir}`")
+
+    # ── ES row ────────────────────────────────────────────────────────────────
+    if _ingos_es:
+        st.markdown("**🇪🇸 Español**")
+        _es_cols = st.columns(4)
+        for _col, _v in zip(_es_cols, _INGO_VARIANTS):
+            if _v not in _ingos_es:
+                continue
+            _suffix = f"_{_v}" if _v else ""
+            _col.image(_ingos_es[_v], use_container_width=True,
+                       caption=_VARIANT_CAPTIONS.get(_v, _v))
+            _col.download_button(
+                f"⬇️ ES",
+                data=_ingos_es[_v],
+                file_name=f"{_ingo_slug}_ingo{_suffix}_es.png",
+                mime="image/png",
+                use_container_width=True,
+                key=f"dl_ingo_es_{_v or 'event'}",
+            )
+
+    # ── EN row ────────────────────────────────────────────────────────────────
+    if _ingos_en:
+        st.markdown("**🇬🇧 English**")
+        _en_cols = st.columns(4)
+        for _col, _v in zip(_en_cols, _INGO_VARIANTS):
+            if _v not in _ingos_en:
+                continue
+            _suffix = f"_{_v}" if _v else ""
+            _col.image(_ingos_en[_v], use_container_width=True,
+                       caption=_VARIANT_CAPTIONS.get(_v, _v))
+            _col.download_button(
+                f"⬇️ EN",
+                data=_ingos_en[_v],
+                file_name=f"{_ingo_slug}_ingo{_suffix}_en.png",
+                mime="image/png",
+                use_container_width=True,
+                key=f"dl_ingo_en_{_v or 'event'}",
+            )

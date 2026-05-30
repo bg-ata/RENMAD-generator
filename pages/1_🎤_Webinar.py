@@ -125,48 +125,28 @@ if "load_request" in st.session_state:
         # ── Background ──
         st.session_state["bg_lib_choice"] = _form.get("bg_lib_choice") or "(none)"
 
-        # ── Photos & logos — read raw bytes directly from disk ────────────────
-        # Using _data from load_slide for the path (it already knows the correct
-        # slide directory regardless of STORE_DIR normalization quirks).
+        # ── Photos & logos — use PIL Images already loaded by load_slide() ──────
+        # load_slide() already resolved paths correctly (it found meta.json).
+        # Converting back to bytes here is the most reliable path — no separate
+        # path resolution needed, no accent-in-username issues, no missing-folder crashes.
         _ph_bytes2 = {}
         _lg_bytes2 = {}
-        _slide_dir2 = os.path.normpath(os.path.join(STORE_DIR, _sid))
-        _ph_dir2 = os.path.join(_slide_dir2, "photos")
-        _lg_dir2 = os.path.join(_slide_dir2, "logos")
-        # Fallback: if normpath still can't find it, try abspath
-        if not os.path.isdir(_ph_dir2):
-            _slide_dir2 = os.path.abspath(os.path.join(STORE_DIR, _sid))
-            _ph_dir2 = os.path.join(_slide_dir2, "photos")
-            _lg_dir2 = os.path.join(_slide_dir2, "logos")
-        # Fallback 2: use PIL Images that load_slide already loaded successfully
-        if not os.path.isdir(_ph_dir2):
-            for _fn2, _img2 in (_data.get("photos") or {}).items():
-                try:
-                    _buf2 = io.BytesIO()
-                    _img2.convert("RGBA").save(_buf2, format="PNG")
-                    _ph_bytes2[_fn2] = _buf2.getvalue()
-                except Exception:
-                    pass
-            for _fn2, _img2 in (_data.get("logos") or {}).items():
-                try:
-                    _buf2 = io.BytesIO()
-                    _img2.convert("RGBA").save(_buf2, format="PNG")
-                    _lg_bytes2[_fn2] = _buf2.getvalue()
-                except Exception:
-                    pass
-        else:
-            for _fn2 in os.listdir(_ph_dir2):
-                try:
-                    with open(os.path.join(_ph_dir2, _fn2), "rb") as _fh2:
-                        _ph_bytes2[_fn2] = _fh2.read()
-                except Exception:
-                    pass
-            for _fn2 in os.listdir(_lg_dir2):
-                try:
-                    with open(os.path.join(_lg_dir2, _fn2), "rb") as _fh2:
-                        _lg_bytes2[_fn2] = _fh2.read()
-                except Exception:
-                    pass
+        for _fn2, _img2 in (_data.get("photos") or {}).items():
+            try:
+                _buf2 = io.BytesIO()
+                _img2.convert("RGBA").save(_buf2, format="PNG")
+                _ph_bytes2[_fn2] = _buf2.getvalue()
+            except Exception:
+                pass
+        for _fn2, _img2 in (_data.get("logos") or {}).items():
+            try:
+                _buf2 = io.BytesIO()
+                _img2.convert("RGBA").save(_buf2, format="PNG")
+                _lg_bytes2[_fn2] = _buf2.getvalue()
+            except Exception:
+                pass
+        # Derive slide dir from STORE_DIR (used only for bg.png lookup below)
+        _slide_dir2 = os.path.abspath(os.path.join(STORE_DIR, _sid))
 
         st.session_state["_photo_pool_bytes"] = _ph_bytes2
         st.session_state["_logo_pool_bytes"]  = _lg_bytes2
@@ -279,7 +259,7 @@ if ata_logo is None:
 
 # ── Main area ─────────────────────────────────────────────────────────────────
 
-st.title("RENMAD Slide Generator")
+st.title("RENMAD Webinar Generator")
 
 # Show any load toast / error that was stored by the load handler above
 if "_load_toast" in st.session_state:
