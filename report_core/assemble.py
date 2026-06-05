@@ -13,6 +13,8 @@ from datetime import datetime
 
 import requests
 
+from canonicalize import canonical, clean_list, is_notable, seniority_score
+
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"}
 
 # industry → cover-grid segment (keys must match STRINGS[lang]["seg"])
@@ -119,7 +121,7 @@ def derive_segments(regs, per_seg=8):
             buckets[seg][c] += 1
     out = []
     for seg in SEG_ORDER:
-        names = [c for c, _ in buckets[seg].most_common(per_seg)]
+        names = clean_list([c for c, _ in buckets[seg].most_common(per_seg * 2)])[:per_seg]
         if names:
             out.append((seg, names))
     return out
@@ -127,21 +129,29 @@ def derive_segments(regs, per_seg=8):
 
 def derive_comp_sample(regs, n=12):
     cnt = Counter(_clean_company(r.company) for r in regs if _is_real_company(_clean_company(r.company)))
-    return [c for c, _ in cnt.most_common(n)]
+    return clean_list([c for c, _ in cnt.most_common(n * 2)])[:n]
+
+
+def relevant_orgs_rich(regs, n=9):
+    """Scored shortlist (seniority × notability), one per company, cleaned names.
+    Returns dicts {company, raw, name, title, score} for an editable approval table."""
+    cand = {}
+    for r in regs:
+        raw = _clean_company(r.company)
+        if not _is_real_company(raw):
+            continue
+        comp = canonical(raw)
+        score = seniority_score(r.job_title) * (1.6 if is_notable(comp) else 1.0)
+        if score < 2:                       # require at least manager-level seniority
+            continue
+        cur = cand.get(comp)
+        if not cur or score > cur["score"]:
+            cand[comp] = {"company": comp, "raw": raw, "name": r.name, "title": r.job_title, "score": score}
+    return sorted(cand.values(), key=lambda d: -d["score"])[:n]
 
 
 def derive_relevant_orgs(regs, n=9):
-    out, seen = [], set()
-    for r in regs:
-        c = _clean_company(r.company)
-        if not _is_real_company(c) or c.lower() in seen:
-            continue
-        if r.job_title and SENIOR.search(r.job_title):
-            seen.add(c.lower())
-            out.append((c, r.name, r.job_title))
-        if len(out) >= n:
-            break
-    return out
+    return [(d["company"], d["name"], d["title"]) for d in relevant_orgs_rich(regs, n)]
 
 
 # ── insights (templated, per language) ───────────────────────────────────────
@@ -244,5 +254,5 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
         "contact": contact,
     }
     insights = build_insights(stats, totals, lang)
-    orgs = derive_relevant_orgs(regs)
+    orgs = form.get("orgs_override") or derive_relevant_orgs(regs)
     return webinar, insights, orgs

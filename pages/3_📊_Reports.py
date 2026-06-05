@@ -25,7 +25,8 @@ _CORE_OK, _CORE_ERR = True, ""
 try:
     from scraper.scrape import scrape_webinar
     from engine.ingest import build_stats, load_registrations
-    from assemble import assemble
+    from assemble import assemble, relevant_orgs_rich
+    from canonicalize import add_alias
     from design.render_proposal import generate_report
 except Exception as e:
     _CORE_OK, _CORE_ERR = False, str(e)
@@ -86,6 +87,7 @@ if reg_csv and zoom_csv:
         ss["reg_path"] = _tmp_csv(reg_csv)
         ss["zoom_path"] = _tmp_csv(zoom_csv)
         ss["stats"] = build_stats(ss["reg_path"], ss["zoom_path"])
+        ss["orgs_rich"] = relevant_orgs_rich(load_registrations(ss["reg_path"]))
         kf = ss["stats"]["key_facts"]; m = st.columns(5)
         m[0].metric("Registrations", f"{kf['registrations']:,}")
         m[1].metric("Companies", kf["companies"]); m[2].metric("Countries", kf["countries"])
@@ -93,16 +95,26 @@ if reg_csv and zoom_csv:
     except Exception as e:
         st.error("Could not read the CSVs: %s" % e)
 
-# ── 3 · Marketing numbers ────────────────────────────────────────────────────
-st.subheader("3 · Marketing numbers")
+# ── 3 · Highlighted organizations (approve / edit) ───────────────────────────
+if ss.get("orgs_rich"):
+    st.subheader("3 · Highlighted organizations")
+    st.caption("Auto-shortlisted from the live audience (job seniority + notable companies). "
+               "Edit, swap or remove — your name fixes are remembered for next time.")
+    ss["orgs_edit"] = st.data_editor(
+        [{"Company": o["company"], "Role": o["title"]} for o in ss["orgs_rich"]],
+        num_rows="dynamic", use_container_width=True, hide_index=True, key="orgs_editor",
+    )
+
+# ── 4 · Marketing numbers ────────────────────────────────────────────────────
+st.subheader("4 · Marketing numbers")
 st.caption("Email campaign sends / opens / clicks. YouTube views are fetched automatically.")
 email_rows = st.data_editor(
     [{"Campaign": "E-shot 1", "Sent": 0, "Opens": 0, "Clicks": 0}],
     num_rows="dynamic", use_container_width=True, key="email_rows",
 )
 
-# ── 4 · Options ──────────────────────────────────────────────────────────────
-st.subheader("4 · Options")
+# ── 5 · Options ──────────────────────────────────────────────────────────────
+st.subheader("5 · Options")
 o1, o2 = st.columns(2)
 annotated = o1.toggle("Add 'highlights' notes (annotated version)", value=False)
 contact = o2.text_input("Contact", value="Cintia Hernández · Business Development · cintia.hernandez@ata.email")
@@ -136,9 +148,19 @@ if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_c
             contact_d = {"name": cbits[0] if cbits else "Cintia Hernández",
                          "role": cbits[1] if len(cbits) > 1 else "Business Development",
                          "email": cbits[-1] if "@" in cbits[-1] else "cintia.hernandez@ata.email"}
+            # highlighted orgs: use the approved/edited table + remember name fixes
+            orgs_override, rich = [], ss.get("orgs_rich", [])
+            for i, row in enumerate(ss.get("orgs_edit", []) or []):
+                comp = (row.get("Company") or "").strip()
+                if not comp:
+                    continue
+                orgs_override.append((comp, "", row.get("Role", "")))
+                if i < len(rich) and comp != rich[i]["company"]:
+                    add_alias(rich[i]["raw"], comp)        # learn the fix
             form = {"title": title, "subtitle": subtitle, "youtube_url": youtube_url,
                     "sponsor_logo_url": sponsor_url, "email_rows": email_rows,
-                    "speakers": speakers, "contact": contact_d}
+                    "speakers": speakers, "contact": contact_d,
+                    "orgs_override": orgs_override or None}
             web, ins, orgs = assemble(sc, ss["stats"], load_registrations(ss["reg_path"]),
                                       form, assets_dir, lang=lang, zoom_csv_path=ss["zoom_path"])
             fname = "ATA_Webinar_Report_%s%s.pptx" % (lang.upper(), "_annotated" if annotated else "")
