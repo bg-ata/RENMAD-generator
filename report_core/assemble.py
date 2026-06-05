@@ -96,13 +96,20 @@ def download_image(url: str, dest_dir: str, name: str) -> str | None:
 
 
 def youtube_views(url: str) -> str | None:
+    """Best-effort view count using only `requests` (no yt-dlp). Returns None on
+    failure — the form has a manual field as the reliable fallback."""
     if not url:
         return None
     try:
-        import yt_dlp
-        with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True, "noplaylist": True}) as y:
-            v = y.extract_info(url, download=False).get("view_count")
-        return f"{v:,}" if v is not None else None
+        m = re.search(r"(?:v=|/live/|youtu\.be/|/embed/)([A-Za-z0-9_-]{6,})", url)
+        if not m:
+            return None
+        s = requests.Session()
+        # accept the EU cookie wall so YouTube serves the real page
+        s.cookies.set("SOCS", "CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg")
+        r = s.get("https://www.youtube.com/watch?v=%s&hl=en&gl=US" % m.group(1), headers=UA, timeout=20)
+        v = re.search(r'"viewCount":\s*"(\d+)"', r.text)
+        return f"{int(v.group(1)):,}" if v else None
     except Exception:
         return None
 
@@ -247,7 +254,7 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
         "sponsor_logo": sponsor_fn,
         "youtube": re.sub(r"^https?://", "", yt_url),
         "youtube_url": yt_url,
-        "youtube_views": youtube_views(yt_url),
+        "youtube_views": (form.get("youtube_views") or "").strip() or youtube_views(yt_url),
         "email": {"delivered": totals[0], "opened": totals[1], "clicked": totals[2], "rows": rows},
         "segments": derive_segments(regs),
         "comp_sample": derive_comp_sample(regs),

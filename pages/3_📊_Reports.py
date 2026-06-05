@@ -66,10 +66,11 @@ if sc:
     t1, t2 = st.columns(2)
     title = t1.text_input("Title (cover)", value=ss.get("title", sc["title"]), key="title")
     subtitle = t2.text_input("Subtitle (cover)", value=ss.get("subtitle", ""), key="subtitle")
-    y1, y2 = st.columns(2)
+    y1, y2, y3 = st.columns([2, 1, 1])
     youtube_url = y1.text_input("YouTube link (recording)", value=ss.get("yt", ""), key="yt")
+    youtube_views = y2.text_input("YouTube views", placeholder="auto / type it", key="ytv")
     logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in sc.get("logos", [])]
-    sponsor_sel = y2.selectbox("Sponsor logo (optional)", logo_opts)
+    sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
     st.caption("Speakers — edit names / roles / companies before generating:")
     ss["speakers_edit"] = st.data_editor(
         [{"Name": s["name"], "Role": s["role"], "Company": s["company"],
@@ -158,8 +159,8 @@ if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_c
                 if i < len(rich) and comp != rich[i]["company"]:
                     add_alias(rich[i]["raw"], comp)        # learn the fix
             form = {"title": title, "subtitle": subtitle, "youtube_url": youtube_url,
-                    "sponsor_logo_url": sponsor_url, "email_rows": email_rows,
-                    "speakers": speakers, "contact": contact_d,
+                    "youtube_views": youtube_views, "sponsor_logo_url": sponsor_url,
+                    "email_rows": email_rows, "speakers": speakers, "contact": contact_d,
                     "orgs_override": orgs_override or None}
             web, ins, orgs = assemble(sc, ss["stats"], load_registrations(ss["reg_path"]),
                                       form, assets_dir, lang=lang, zoom_csv_path=ss["zoom_path"])

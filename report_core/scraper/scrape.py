@@ -1,28 +1,32 @@
 # -*- coding: utf-8 -*-
 """Scrape an ATA / RENMAD webinar page → structured webinar metadata.
 
-Reliable fields: title, speakers [name, role, photo_url, is_moderator].
-Best-effort: sponsor/theme logo. Company-per-speaker is left for the form
-(the page caption omits it). Webinar DATE should come from the Zoom CSV
-(actual session datetime), not the page (page shows only a promo time).
+Dependency-free: uses only `requests` (already installed) + the standard library
+(no beautifulsoup4). Reliable fields: title, speakers [name, role, photo_url,
+is_moderator]. Best-effort: sponsor/theme logos. Company-per-speaker is parsed
+from the image filename when present. Webinar DATE comes from the Zoom CSV.
 """
 from __future__ import annotations
-import re, sys, json
+import re
+from html import unescape
+
 import requests
-from bs4 import BeautifulSoup
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"}
 MOD_RE = re.compile(r"\[\s*(moderator|moderador|moderadora|moderatore|moderatrice|moderatorka)\s*\]", re.I)
 
 
+def _text(fragment: str) -> str:
+    return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", fragment or ""))).strip()
+
+
 def _clean_title(t: str) -> str:
-    t = re.sub(r"\s*[-–]\s*My ATA.*$", "", t, flags=re.I)            # strip site suffix
-    t = re.sub(r"^\s*Webinar\s*[:\-–]\s*", "", t, flags=re.I)         # strip "Webinar:" prefix
+    t = re.sub(r"\s*[-–]\s*My ATA.*$", "", t, flags=re.I)
+    t = re.sub(r"^\s*Webinar\s*[:\-–]\s*", "", t, flags=re.I)
     return t.strip()
 
 
 def _company_from_filename(photo: str) -> str:
-    # convention: First-Last(-Middle).Company-N.png  → company = segment after the dot
     base = (photo or "").split("/")[-1]
     segs = base.split(".")
     if len(segs) >= 3:
@@ -33,87 +37,66 @@ def _company_from_filename(photo: str) -> str:
 
 def _guess_lang(text: str) -> str:
     t = text.lower()
-    if re.search(r"\b(magazyn|energii|możliwo|wyzwania|rynku|jak|projekt[óo]w)\b", t): return "pl"
+    if re.search(r"\b(magazyn|energii|możliwo|wyzwania|rynku|jak|projekt[óo]w|sfinansowa)\b", t): return "pl"
     if re.search(r"\b(della|allopportun|quadro|progett|rendere|bancabili|riforma|energetico)\b", t): return "it"
     if re.search(r"\b(cómo|cadena|proyecto|máxima|bancabilidad|demanda|movilidad|energ[íi]a)\b", t): return "es"
     return "en"
 
 
+def _meta(html: str, prop: str) -> str:
+    m = re.search(r'property=["\']%s["\']\s+content=["\']([^"\']*)["\']' % re.escape(prop), html)
+    if not m:
+        m = re.search(r'content=["\']([^"\']*)["\']\s+property=["\']%s["\']' % re.escape(prop), html)
+    return unescape(m.group(1)) if m else ""
+
+
 def scrape_webinar(url: str, html: str | None = None) -> dict:
     if html is None:
         html = requests.get(url, headers=UA, timeout=30).text
-    soup = BeautifulSoup(html, "html.parser")
 
-    og = lambda p: (soup.find("meta", property=p) or {}).get("content") if soup.find("meta", property=p) else None
-    title = _clean_title(og("og:title") or (soup.title.string if soup.title else "") or "")
-    cover = og("og:image")
+    _t = re.search(r"<title>(.*?)</title>", html, re.S)
+    title = _clean_title(_meta(html, "og:title") or _text(_t.group(1) if _t else ""))
+    cover = _meta(html, "og:image")
 
-    # speakers: name in the caption heading (<h4>/<strong>), role in the <p>(s)
     speakers, seen = [], set()
-    for cap in soup.select(".wp-caption"):
-        img = cap.find("img")
-        photo = (img.get("src") or img.get("data-src")) if img else None
-        figcap = cap.find("figcaption") or cap
-        full = re.sub(r"\s+", " ", figcap.get_text(" ", strip=True)).strip()
-        if not full:
-            continue
+    for block in re.findall(r'<figure[^>]*class=["\'][^"\']*wp-caption[^"\']*["\'][^>]*>(.*?)</figure>',
+                            html, re.S | re.I):
+        img = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', block)
+        photo = img.group(1) if img else None
+        nm = re.search(r'<(?:h[1-6]|strong)[^>]*>(.*?)</(?:h[1-6]|strong)>', block, re.S | re.I)
+        name = _text(nm.group(1)) if nm else ""
+        ps = re.findall(r'<p[^>]*>(.*?)</p>', block, re.S | re.I)
+        role = _text(" ".join(ps)) if ps else ""
+        full = _text(block)
         is_mod = bool(MOD_RE.search(full))
-        name_el = figcap.find(["h1", "h2", "h3", "h4", "h5", "h6", "strong"])
-        name = name_el.get_text(" ", strip=True).strip() if name_el else ""
-        ps = [p.get_text(" ", strip=True) for p in figcap.find_all("p")]
-        role = " ".join(ps).strip() if ps else (full.replace(name, "", 1) if name else full)
-        if not name:                                  # fallback: 2-token heuristic
+        if not name:                                   # fallback: first two words
             parts = full.split(); name = " ".join(parts[:2]); role = " ".join(parts[2:])
+        if not role and name:                          # role outside a <p>: caption text minus name
+            role = full.replace(name, "", 1)
         role = re.sub(r"\s+", " ", MOD_RE.sub("", role)).strip(" -·")
-        company = _company_from_filename(photo)
         key = name.lower()
         if not name or key in seen:
             continue
         seen.add(key)
-        speakers.append({"name": name, "role": role, "company": company,
+        speakers.append({"name": name, "role": role, "company": _company_from_filename(photo),
                          "photo": photo, "is_moderator": is_mod})
 
-    # logos: RENMAD theme logo and/or a sponsor logo among uploads
     logos = []
-    for img in soup.select("img"):
-        src = img.get("src") or img.get("data-src") or ""
+    for src in re.findall(r'https://my\.atainsights\.com/wp-content/uploads/[^"\'\) ]+', html):
         low = src.lower()
-        if "uploads" in low and ("logo" in low) and "favicon" not in low and "logo-3-blanco" not in low and "logo-prueba" not in low:
+        if "logo" in low and "favicon" not in low and "logo-3-blanco" not in low and "logo-prueba" not in low:
             logos.append(src.split("?")[0])
     logos = list(dict.fromkeys(logos))
 
-    return {
-        "url": url,
-        "title": title,
-        "language_guess": _guess_lang(title),
-        "cover_image": cover,
-        "speakers": speakers,
-        "logos": logos,   # disambiguate theme vs sponsor in the form
-    }
+    return {"url": url, "title": title, "language_guess": _guess_lang(title),
+            "cover_image": cover, "speakers": speakers, "logos": logos}
 
 
 if __name__ == "__main__":
-    urls = sys.argv[1:] or [
-        "https://my.atainsights.com/webinar/webinar-how-green-hydrogen-projects-can-reach-fid-in-europe/",
-        "https://my.atainsights.com/webinar/webinar-como-llegar-a-la-puntuacion-maxima-de-cadena-de-valor-europea-en-tu-proyecto-bess-con-feder/",
-        "https://my.atainsights.com/webinar/webinar-financing-the-future-of-data-centers-capital-energy-and-investment-strategies/",
-        "https://my.atainsights.com/webinar/webinar-distribucion-y-demanda-el-dilema-de-la-bancabilidad-del-biometano/",
-        "https://my.atainsights.com/webinar/webinar-movilidad-terrestre-con-hidrogeno-el-reto-de-coordinar-infraestructura-y-demanda/",
-        "https://my.atainsights.com/webinar/webinar-dalla-compliance-allopportunita-data-center-e-il-nuovo-quadro-energetico/",
-        "https://my.atainsights.com/webinar/webinar-rendere-bancabili-i-progetti-bess-in-italia-fondamentali-su-ricavi-e-finanziamento/",
-        "https://my.atainsights.com/webinar/webinar-riforma-del-permitting-in-italia-cosa-cambia-con-il-tufer-per-i-progetti-di-storage/",
-        "https://my.atainsights.com/webinar/webinar-jak-sfinansowac-magazyn-energii-mozliwosci-i-wyzwania-na-polskim-rynku/",
-        "https://my.atainsights.com/webinar/webinar-optymalizacja-modeli-przychodow-w-wielkoskalowych-magazynach-energii-w-polsce/",
-    ]
-    for u in urls:
-        try:
-            d = scrape_webinar(u)
-            print("=" * 80)
-            print("[%s] %s" % (d["language_guess"].upper(), d["title"]))
-            print("  speakers (%d):" % len(d["speakers"]))
-            for s in d["speakers"]:
-                print("     %s %-22s | %-40s | %s" % ("(MOD)" if s["is_moderator"] else "     ",
-                      s["name"], s["role"][:40], s["company"]))
-            print("  logos:", [l.split("/uploads/")[-1] for l in d["logos"]][:4])
-        except Exception as e:
-            print("ERR", u, e)
+    import sys
+    for u in sys.argv[1:]:
+        d = scrape_webinar(u)
+        print("[%s] %s" % (d["language_guess"].upper(), d["title"]))
+        for s in d["speakers"]:
+            print("   %s %-22s | %-36s | %s" % ("MOD" if s["is_moderator"] else "   ",
+                  s["name"], s["role"][:36], s["company"]))
