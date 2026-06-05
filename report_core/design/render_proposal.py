@@ -67,9 +67,9 @@ def reg(s):   return _f("Inter-Regular.ttf", s)
 STRINGS = {
  "en": {"report":"MARKETING & AUDIENCE REPORT","partner":"In partnership with","moderator":"Moderator",
         "sec_facts":"KEY FACTS","facts_title":"The event in numbers","by_country":"By country",
-        "facts_ctx":["professionals signed up","unique organisations","across the world","joined live on Zoom","of registrants joined","expert + moderator"],
+        "facts_ctx":["professionals signed up","unique organisations","across the world","on Zoom + YouTube","of registrants viewed","expert + moderator"],
         "registrations":"Registrations",
-        "companies":"Companies","countries":"Countries","live":"Live attendees","attendance":"Attendance rate",
+        "companies":"Companies","countries":"Countries","live":"Total viewers","attendance":"Attendance rate",
         "speakers":"Speakers","sec_aud":"AUDIENCE","country_title":"Where they joined from","by_region":"By region",
         "countries_rep":"countries represented","ind_title":"Who was in the room","ind_note":"other / unspecified",
         "sec_comp":"COMPANIES","comp_title":"Who registered","sel_comp":"Selected registered companies",
@@ -87,9 +87,9 @@ STRINGS = {
                "Finance & Advisory":"Finance & Advisory","EPC, Tech & Equipment":"EPC, Tech & Equipment"}},
  "es": {"report":"REPORTE DE MARKETING Y AUDIENCIA","partner":"En colaboración con","moderator":"Moderadora",
         "sec_facts":"DATOS CLAVE","facts_title":"El evento en cifras","by_country":"Por país",
-        "facts_ctx":["profesionales inscritos","organizaciones únicas","en todo el mundo","en directo por Zoom","de los registrados","experta + moderadora"],
+        "facts_ctx":["profesionales inscritos","organizaciones únicas","en todo el mundo","en Zoom + YouTube","de los registrados","experta + moderadora"],
         "registrations":"Registros",
-        "companies":"Empresas","countries":"Países","live":"Asistentes en directo","attendance":"Tasa de asistencia",
+        "companies":"Empresas","countries":"Países","live":"Espectadores totales","attendance":"Tasa de asistencia",
         "speakers":"Ponentes","sec_aud":"AUDIENCIA","country_title":"Desde dónde se conectaron","by_region":"Por región",
         "countries_rep":"países representados","ind_title":"Quién estuvo en la sala","ind_note":"otros / sin especificar",
         "sec_comp":"EMPRESAS","comp_title":"Quién se registró","sel_comp":"Empresas registradas destacadas",
@@ -107,9 +107,9 @@ STRINGS = {
                "Finance & Advisory":"Finanzas y asesoría","EPC, Tech & Equipment":"EPC, tecnología y equipo"}},
  "it": {"report":"REPORT DI MARKETING E AUDIENCE","partner":"In collaborazione con","moderator":"Moderatrice",
         "sec_facts":"DATI CHIAVE","facts_title":"L'evento in numeri","by_country":"Per paese",
-        "facts_ctx":["professionisti iscritti","organizzazioni uniche","in tutto il mondo","dal vivo su Zoom","dei registrati","esperto + moderatrice"],
+        "facts_ctx":["professionisti iscritti","organizzazioni uniche","in tutto il mondo","su Zoom + YouTube","dei registrati","esperto + moderatrice"],
         "registrations":"Registrazioni",
-        "companies":"Aziende","countries":"Paesi","live":"Partecipanti live","attendance":"Tasso di partecipazione",
+        "companies":"Aziende","countries":"Paesi","live":"Spettatori totali","attendance":"Tasso di partecipazione",
         "speakers":"Relatori","sec_aud":"AUDIENCE","country_title":"Da dove si sono collegati","by_region":"Per regione",
         "countries_rep":"paesi rappresentati","ind_title":"Chi era presente","ind_note":"altri / non specificato",
         "sec_comp":"AZIENDE","comp_title":"Chi si è registrato","sel_comp":"Aziende registrate selezionate",
@@ -127,9 +127,9 @@ STRINGS = {
                "Finance & Advisory":"Finanza e consulenza","EPC, Tech & Equipment":"EPC, tech e forniture"}},
  "pl": {"report":"RAPORT MARKETINGOWY I AUDYTORIUM","partner":"We współpracy z","moderator":"Moderatorka",
         "sec_facts":"KLUCZOWE DANE","facts_title":"Wydarzenie w liczbach","by_country":"Według kraju",
-        "facts_ctx":["zarejestrowanych profesjonalistów","unikalnych organizacji","na całym świecie","na żywo przez Zoom","zarejestrowanych","ekspert + moderatorka"],
+        "facts_ctx":["zarejestrowanych profesjonalistów","unikalnych organizacji","na całym świecie","na Zoom + YouTube","zarejestrowanych","ekspert + moderatorka"],
         "registrations":"Rejestracje",
-        "companies":"Firmy","countries":"Kraje","live":"Uczestnicy na żywo","attendance":"Frekwencja",
+        "companies":"Firmy","countries":"Kraje","live":"Łączna widownia","attendance":"Frekwencja",
         "speakers":"Prelegenci","sec_aud":"AUDYTORIUM","country_title":"Skąd dołączyli","by_region":"Według regionu",
         "countries_rep":"reprezentowanych krajów","ind_title":"Kto był na sali","ind_note":"inne / nieokreślone",
         "sec_comp":"FIRMY","comp_title":"Kto się zarejestrował","sel_comp":"Wybrane zarejestrowane firmy",
@@ -332,6 +332,21 @@ def draw_insight(d, key):
     T(d, (112, y), text, reg(fs), (38,44,48), anchor="lm")
 
 # ---------------------------------------------------------------- slides
+def chips(d, names, cx0, cy0, maxx, max_y, fs=22, pad=52, h=58, vstep=74, maxlen=24):
+    """Lay out rounded name-chips; truncates long names, never wider than the card,
+    stops when out of vertical room (so nothing overflows the card)."""
+    f = semi(fs); cx, cy = cx0, cy0
+    for nm in names:
+        nm = (nm[:maxlen].rstrip() + "…") if len(nm) > maxlen + 1 else nm
+        wpx = min(tw(d, nm, f) + pad, maxx - cx0)
+        if cx + wpx > maxx:
+            cx = cx0; cy += vstep
+        if cy + h > max_y:
+            break
+        rrect(d, [cx, cy, cx + wpx, cy + h], 12, fill=GREY)
+        T(d, (cx + wpx / 2, cy + h / 2), nm, f, CHAR, anchor="mm")
+        cx += wpx + 16
+
 def slide_cover(st, lang):
     s=STRINGS[lang]; img,d=canvas(GREY)
     PX=1170
@@ -343,15 +358,20 @@ def slide_cover(st, lang):
     T(d,(72,200),s["report"],bold(22),ORANGE,anchor="la")
     star(d, 72+tw(d,s["report"],bold(22))+40, 196, 26, YELLOW)
     avail = PX - 70 - 50
-    lines = WEBINAR["title_lines"]
+    lines = [l for l in WEBINAR["title_lines"] if l]
     fs = 116
-    while fs > 60 and any(tw(d, ln, black(fs)) > avail for ln in lines): fs -= 2
-    yy = 272
+    while fs > 34 and any(tw(d, ln, black(fs)) > avail for ln in lines): fs -= 2
+    yy = 300 if len(lines) <= 1 else 272
     for ln in lines:
-        T(d,(70,yy),ln,black(fs),CHAR,anchor="la"); yy += int(fs*1.0)
-    T(d,(72,yy+30),WEBINAR["subtitle"],semi(32),(48,54,58),anchor="la")
-    rrect(d,[72,yy+106,72+tw(d,WEBINAR['date'],bold(20))+56,yy+106+52],10,fill=CHAR)
-    T(d,(100,yy+106+26),WEBINAR["date"],bold(20),WHITE,anchor="lm")
+        T(d,(70,yy),ln,black(fs),CHAR,anchor="la"); yy += int(fs*1.04)
+    sub = WEBINAR.get("subtitle") or ""
+    sfs = 32
+    while sfs > 18 and tw(d, sub, semi(sfs)) > avail: sfs -= 1
+    suby = yy + 24
+    T(d,(72,suby),sub,semi(sfs),(48,54,58),anchor="la")
+    dy = suby + (sfs + 44 if sub else 6)
+    rrect(d,[72,dy,72+tw(d,WEBINAR['date'],bold(20))+56,dy+52],10,fill=CHAR)
+    T(d,(100,dy+26),WEBINAR["date"],bold(20),WHITE,anchor="lm")
     global COVER_PHOTOS; COVER_PHOTOS=[]
     sps=WEBINAR["speakers"]; n=max(1,len(sps)); sx=1548
     has_sp=bool(WEBINAR.get("sponsor_logo"))
@@ -368,7 +388,8 @@ def slide_cover(st, lang):
                                  "cx":sx,"cy":cy,"d":D})
         ny=cy+D//2+name_fs+4
         T(d,(sx,ny),sp["name"],bold(name_fs),WHITE,anchor="mm")
-        role=(s["moderator"]+" · " if sp.get("mod") else "")+(sp.get("org") or "")
+        sub2=(sp.get("org") or sp.get("role") or "")
+        role=(s["moderator"]+" · " if sp.get("mod") else "")+sub2
         T(d,(sx,ny+role_fs+10),role,reg(role_fs),(255,224,210),anchor="mm")
     sp_logo=WEBINAR.get("sponsor_logo")
     if sp_logo and os.path.exists(os.path.join(ASSETS,sp_logo)):
@@ -451,12 +472,7 @@ def slide_industries(st, lang):
     # right card: selected companies (larger chips)
     card(d,[1110,CY0,1850,CY1])
     T(d,(1162,CY0+40),s["sel_comp"],bold(22),CHAR,anchor="la")
-    cx0=1162; cx=cx0; cy=CY0+118; maxx=1810
-    for name in [c for _,lst in WEBINAR["segments"] for c in lst][:12]:
-        wpx=tw(d,name,semi(20))+52
-        if cx+wpx>maxx: cx=cx0; cy+=72
-        rrect(d,[cx,cy,cx+wpx,cy+56],12,fill=GREY)
-        T(d,(cx+wpx/2,cy+28),name,semi(20),CHAR,anchor="mm"); cx+=wpx+16
+    chips(d, WEBINAR.get("comp_sample", [])[:14], 1162, CY0+118, 1810, CY1-24, fs=20, h=56, vstep=72)
     footer(d,4,lang); return save(img,f"04_industries_{lang}.png")
 
 def slide_companies(st, lang):
@@ -472,12 +488,7 @@ def slide_companies(st, lang):
         card(d,[x,y,x+cw,y+ch],edge=ecol)
         badge(d,x+82,y+68,34,ecol,ikey,WHITE,30)
         T(d,(x+134,y+68),s["seg"][seg],bold(23),CHAR,anchor="lm")
-        cx0=x+48; cx=cx0; cy=y+138; maxx=x+cw-40
-        for nm in names:
-            wpx=tw(d,nm,semi(22))+52
-            if cx+wpx>maxx: cx=cx0; cy+=74
-            rrect(d,[cx,cy,cx+wpx,cy+58],12,fill=GREY)
-            T(d,(cx+wpx/2,cy+29),nm,semi(22),CHAR,anchor="mm"); cx+=wpx+16
+        chips(d, names, x+48, y+138, x+cw-40, y+ch-24, fs=22)
     footer(d,5,lang); return save(img,f"05_companies_{lang}.png")
 
 def slide_engagement(st, lang):
@@ -669,6 +680,33 @@ def build_pptx(paths, name, photos=None, link=None):
             print('theme hlink skip',e)
     prs.save(os.path.join(OUT,name)); print("PPTX:",os.path.join(OUT,name))
 
+def _bake_preview(lang):
+    """After the PPTX is saved, flatten the native speaker photos + YouTube text
+    into the slide PNGs so the in-app preview matches the downloaded file."""
+    cov = os.path.join(OUT, "01_cover_%s.png" % lang)
+    try:
+        im = Image.open(cov).convert("RGB")
+        for ph in COVER_PHOTOS:
+            d = ph["d"]; av = ImageOps.fit(Image.open(ph["path"]).convert("RGB"), (d, d), Image.LANCZOS)
+            mask = Image.new("L", (d, d), 0); ImageDraw.Draw(mask).ellipse([0, 0, d, d], fill=255)
+            im.paste(av, (int(ph["cx"] - d / 2), int(ph["cy"] - d / 2)), mask)
+        im.save(cov)
+    except Exception as e:
+        print("preview cover skip", e)
+    if LINK_INFO:
+        eng = os.path.join(OUT, "06_engagement_%s.png" % lang)
+        try:
+            im = Image.open(eng).convert("RGB"); dr = ImageDraw.Draw(im)
+            bf = ImageFont.truetype(os.path.join(FONTS, "Montserrat-Bold.ttf"), 30)
+            rf = ImageFont.truetype(os.path.join(FONTS, "Inter-Regular.ttf"), 22)
+            y0, y1 = LINK_INFO["box"][1], LINK_INFO["box"][3]; cyb = (y0 + y1) // 2
+            dr.text((968, cyb - 20), LINK_INFO["title"], font=bf, fill=(255, 255, 255), anchor="lm")
+            dr.text((968, cyb + 20), LINK_INFO["line2"], font=rf, fill=(255, 200, 180), anchor="lm")
+            im.save(eng)
+        except Exception as e:
+            print("preview eng skip", e)
+
+
 def generate_report(webinar, insights, stats, orgs, lang="en", annotate=False,
                     assets_dir=None, out_dir=None, filename=None):
     """Render the 9-slide editable PPTX for an arbitrary webinar.
@@ -690,10 +728,19 @@ def generate_report(webinar, insights, stats, orgs, lang="en", annotate=False,
     if out_dir:
         OUT = out_dir
         os.makedirs(OUT, exist_ok=True)
+    # total audience = Zoom live attendees + YouTube views (recompute attendance %)
+    import copy as _copy, re as _re
+    _yt = int(_re.sub(r"[^\d]", "", (webinar.get("youtube_views") or "")) or 0)
+    if _yt:
+        stats = _copy.deepcopy(stats); _kf = stats["key_facts"]
+        _kf["live_attendees"] = _kf["live_attendees"] + _yt
+        if _kf.get("registrations"):
+            _kf["attendance_rate_pct"] = round(100.0 * _kf["live_attendees"] / _kf["registrations"], 1)
     deck = [slide_cover(stats, lang), slide_facts(stats, lang), slide_country(stats, lang),
             slide_industries(stats, lang), slide_companies(stats, lang), slide_engagement(stats, lang),
             slide_reach(stats, lang), slide_orgs(stats, lang, orgs), slide_contact(stats, lang)]
     if not filename:
         filename = "ATA_Webinar_Report_%s%s.pptx" % (lang.upper(), "_annotated" if annotate else "")
     build_pptx(deck, filename, photos=list(COVER_PHOTOS), link=LINK_INFO)
+    _bake_preview(lang)
     return os.path.join(OUT, filename)

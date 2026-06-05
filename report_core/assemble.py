@@ -66,9 +66,10 @@ def webinar_date(zoom_csv_path: str, lang: str = "en") -> str:
 
 
 def split_title(title: str):
-    """Split a title into two balanced lines for the cover."""
+    """Split a title into two balanced lines for the cover (short titles stay on one line)."""
+    title = title.strip()
     words = title.split()
-    if len(words) <= 2:
+    if len(title) <= 28 or len(words) <= 2:
         return [title, ""]
     best, target = 1, len(title) / 2
     acc = 0
@@ -292,14 +293,19 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
                      f"{o_:,}" if o_ else "—", f"{c_:,}" if c_ else "—"))
     totals = form.get("email_totals") or (fmt_k(sent_t), fmt_k(open_t), fmt_k(click_t))
 
-    title = form.get("title") or scraped.get("title", "")
+    title = (form.get("title") or scraped.get("title", "")).strip()
+    subtitle = (form.get("subtitle") or "").strip()
+    if not subtitle:                                   # split "Main – subtitle" off the scraped title
+        parts = re.split(r"\s+[-–—:]\s+", title, 1)
+        if len(parts) == 2 and len(parts[0]) >= 6:
+            title, subtitle = parts[0].strip(), parts[1].strip()
     yt_url = form.get("youtube_url", "")
     contact = form.get("contact") or {"name": "Cintia Hernández", "role": "Business Development",
                                       "email": "cintia.hernandez@ata.email"}
 
     webinar = {
         "title_lines": split_title(title),
-        "subtitle": form.get("subtitle", ""),
+        "subtitle": subtitle,
         "date": webinar_date(zoom_csv_path, lang) if zoom_csv_path else "",
         "speakers": speakers,
         "sponsor_logo": sponsor_fn,
