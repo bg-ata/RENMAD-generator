@@ -118,6 +118,57 @@ def fmt_k(n: int) -> str:
     return f"{round(n/1000)}K+" if n >= 1000 else str(n)
 
 
+def _num_before(line, label):
+    m = re.search(r"([\d][\d.,]*)\s*(?:%s)" % label, line, re.I)
+    return int(re.sub(r"[^\d]", "", m.group(1))) if m else 0
+
+
+def _sum_val(text, label):
+    m = re.search(r"(?:over|m[aá]s de|oltre|ponad)?\s*([\d][\d.,]*\s*[KkMm]?)\s*(?:%s)" % label, text, re.I)
+    if not m:
+        return None
+    v = m.group(1).replace(" ", "").upper()
+    return v if v.endswith("+") else v + "+"
+
+
+def parse_email_block(text):
+    """Parse a pasted email-stats block (one campaign per line + optional summary)
+    into (rows, totals). Handles bullets, '|' separators, EN/ES/IT/PL labels.
+
+    e.g.  '• E-shot 1: Apr 15 | 11,081 sent | 3,783 opens | 400 clicks'
+    """
+    rows = []
+    SENT = r"sent|envi\w*|invi\w*|wys[łl]\w*|consegn\w*"
+    OPEN = r"opens?|apert\w*|aperture|otwar\w*"
+    CLICK = r"clicks?|clic\w*|kli/ ?kn\w*|klikni\w*"
+    summary_re = re.compile(r"(?i)^\s*(summary|resumen|riepilogo|podsumow|total)")
+    summary_line = ""
+    for raw in (text or "").splitlines():
+        ln = raw.strip().lstrip("•·*-–\t ").strip()
+        if not ln:
+            continue
+        if summary_re.match(ln):
+            summary_line = ln
+            continue
+        if not re.search(r"(?i)(%s|%s|%s)" % (SENT, OPEN, CLICK), ln):
+            continue
+        name, date = ln, ""
+        mc = re.match(r"^(.*?):(.*)$", ln)
+        if mc:
+            name = mc.group(1).strip()
+            cand = re.split(r"\|", mc.group(2))[0].strip()
+            if cand and not re.search(r"(?i)(%s|%s|%s)" % (SENT, OPEN, CLICK), cand) and not re.search(r"\d{3,}", cand):
+                date = cand
+        camp = name + (" · " + date if date else "")
+        rows.append({"Campaign": camp, "Sent": _num_before(ln, SENT),
+                     "Opens": _num_before(ln, OPEN), "Clicks": _num_before(ln, CLICK)})
+    deliv = _sum_val(summary_line, r"delivered|entreg\w*|deliver\w*|consegn\w*|dostarcz\w*")
+    opened = _sum_val(summary_line, r"opened|open\w*|apert\w*|otwar\w*")
+    clicked = _sum_val(summary_line, r"clicked|click\w*|clic\w*|klikni\w*")
+    totals = (deliv, opened, clicked) if (deliv and opened and clicked) else None
+    return rows, totals
+
+
 # ── derivations from registrants ─────────────────────────────────────────────
 def derive_segments(regs, per_seg=8):
     buckets = {s: Counter() for s in SEG_ORDER}
@@ -239,7 +290,7 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
         sent_t += s_; open_t += o_; click_t += c_
         rows.append((r.get("Campaign", ""), f"{s_:,}" if s_ else "—",
                      f"{o_:,}" if o_ else "—", f"{c_:,}" if c_ else "—"))
-    totals = (fmt_k(sent_t), fmt_k(open_t), fmt_k(click_t))
+    totals = form.get("email_totals") or (fmt_k(sent_t), fmt_k(open_t), fmt_k(click_t))
 
     title = form.get("title") or scraped.get("title", "")
     yt_url = form.get("youtube_url", "")

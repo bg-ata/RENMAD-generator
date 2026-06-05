@@ -25,7 +25,7 @@ _CORE_OK, _CORE_ERR = True, ""
 try:
     from scraper.scrape import scrape_webinar
     from engine.ingest import build_stats, load_registrations
-    from assemble import assemble, relevant_orgs_rich
+    from assemble import assemble, relevant_orgs_rich, parse_email_block
     from canonicalize import add_alias
     from design.render_proposal import generate_report
 except Exception as e:
@@ -108,11 +108,20 @@ if ss.get("orgs_rich"):
 
 # ── 4 · Marketing numbers ────────────────────────────────────────────────────
 st.subheader("4 · Marketing numbers")
-st.caption("Email campaign sends / opens / clicks. YouTube views are fetched automatically.")
-email_rows = st.data_editor(
-    [{"Campaign": "E-shot 1", "Sent": 0, "Opens": 0, "Clicks": 0}],
-    num_rows="dynamic", use_container_width=True, key="email_rows",
-)
+st.caption("Paste your email stats exactly as you copied them — one campaign per line, "
+           "plus the summary line. It's read automatically.")
+email_text = st.text_area(
+    "Email stats", height=170, key="email_text",
+    placeholder=("• E-shot 1: Apr 15 | 11,081 sent | 3,783 opens | 400 clicks\n"
+                 "• Weekly Spanish (x7): 253,786 sent | 57,966 opens | 22,227 clicks\n"
+                 "• Summary: over 410K delivered | over 94K opened | over 34K clicked"))
+email_rows, email_totals = parse_email_block(email_text)
+if email_rows:
+    st.dataframe(email_rows, use_container_width=True, hide_index=True)
+    if email_totals:
+        st.caption("Totals read: **%s** delivered · **%s** opened · **%s** clicked" % email_totals)
+elif email_text.strip():
+    st.warning("Couldn't read any campaign lines — check the format (name : numbers + 'sent/opens/clicks').")
 
 # ── 5 · Options ──────────────────────────────────────────────────────────────
 st.subheader("5 · Options")
@@ -160,7 +169,8 @@ if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_c
                     add_alias(rich[i]["raw"], comp)        # learn the fix
             form = {"title": title, "subtitle": subtitle, "youtube_url": youtube_url,
                     "youtube_views": youtube_views, "sponsor_logo_url": sponsor_url,
-                    "email_rows": email_rows, "speakers": speakers, "contact": contact_d,
+                    "email_rows": email_rows, "email_totals": email_totals,
+                    "speakers": speakers, "contact": contact_d,
                     "orgs_override": orgs_override or None}
             web, ins, orgs = assemble(sc, ss["stats"], load_registrations(ss["reg_path"]),
                                       form, assets_dir, lang=lang, zoom_csv_path=ss["zoom_path"])
