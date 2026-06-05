@@ -539,21 +539,26 @@ table_init = [{"Company": p.get("Company", ""), "Role": p.get("Role", "")}
 # Bulk paste from Excel — solves Streamlit's multi-column paste issue
 # (in data_editor, pasting tab-separated rows often dumps everything in one cell).
 # Pegas aquí → al pulsar Add se crean filas reales, una por línea.
-with st.expander("📋 Paste from Excel (bulk add)", expanded=False):
+with st.expander("📋 Pega la lista de empresas (bulk add)", expanded=True):
     st.caption(
-        "Copia 1 o 2 columnas desde Excel (separadas por tabulador) y pégalas aquí. "
-        "Una fila = una línea. Al pulsar **Add rows** se añaden a la tabla de abajo."
+        "Pega una empresa por línea, en **cualquier formato** — sirve copiado de Excel, "
+        "Word, email o Notion. La empresa va primero y el rol después, separados por "
+        "coma, raya, barra, punto y coma, tabulador o paréntesis. Si solo pones la "
+        "empresa, el rol queda vacío."
     )
     paste_key = f"bulk_paste_{active_event_id or 'new'}"
     paste_text = st.text_area(
-        "Paste rows here", height=140, key=paste_key,
-        placeholder="HILTI\tDiamond\nLINKLATERS\tGold\nAcme Media\tMedia Partner",
+        "Pega aquí", height=150, key=paste_key,
+        placeholder=("HILTI, Diamond\n"
+                     "Linklaters - Gold\n"
+                     "Acme Media | Media Partner\n"
+                     "Endesa (Platinum)\n"
+                     "Iberdrola"),
     )
     bp1, bp2 = st.columns([1, 3])
-    add_bulk = bp1.button("➕ Add rows to table", use_container_width=True,
+    add_bulk = bp1.button("➕ Añadir a la tabla", use_container_width=True,
                           disabled=not paste_text.strip())
-    bp2.caption("Separa columnas con TAB. Si solo pegas Company, el Role queda vacío "
-                "y puedes rellenarlo después.")
+    bp2.caption("Cada línea = una empresa. Luego asignas el logo de cada una abajo.")
 
 # IMPORTANT: data_editor's key MUST be unique per event. Streamlit forbids
 # st.session_state[key] = ... for data_editor, so the only way to "load" data is
@@ -566,17 +571,29 @@ _partners_extras  = st.session_state.get(_partners_extras_key, [])
 
 # Apply bulk paste BEFORE rendering the data_editor
 if add_bulk and paste_text.strip():
+    def _split_company_role(line):
+        line = re.sub(r"^[\s•·*▪‣]+", "", line)               # drop bullets / leading space
+        line = re.sub(r"^[-–]\s+", "", line).strip()          # drop a leading "- " bullet
+        if not line:
+            return None
+        for sep in ("\t", "|", ";"):                          # explicit column separators
+            if sep in line:
+                a, _, b = line.partition(sep); return a.strip(), b.strip()
+        m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", line)        # Company (Role)
+        if m:
+            return m.group(1).strip(), m.group(2).strip()
+        m = re.match(r"^(.*?)\s+[–-]\s+(.*)$", line)           # Company - Role  (spaced dash)
+        if m:
+            return m.group(1).strip(), m.group(2).strip()
+        if "," in line:                                       # Company, Role
+            a, _, b = line.partition(","); return a.strip(), b.strip()
+        return line.strip(), ""
+
     new_rows = []
     for line in paste_text.strip().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # Try tab-separated first, fall back to comma if no tabs
-        cells = line.split("\t") if "\t" in line else line.split(",")
-        company = cells[0].strip() if cells else ""
-        role    = cells[1].strip() if len(cells) > 1 else ""
-        if company:
-            new_rows.append({"Company": company, "Role": role})
+        cr = _split_company_role(line)
+        if cr and cr[0]:
+            new_rows.append({"Company": cr[0], "Role": cr[1]})
     if new_rows:
         # Capture any current edits from the data_editor so they don't get lost
         prev_table_key = f"partners_table_{active_event_id or 'new'}_v{_partners_version}"

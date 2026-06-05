@@ -28,15 +28,33 @@ try:
     from assemble import assemble, relevant_orgs_rich, parse_email_block
     from canonicalize import add_alias
     from design.render_proposal import generate_report
+    from library import save_report, list_reports, path_of, cover_of
 except Exception as e:
     _CORE_OK, _CORE_ERR = False, str(e)
 
 LANGS = {"English": "en", "Español": "es", "Italiano": "it", "Polski": "pl"}
+PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 st.title("📊 Webinar Reports")
 st.caption("Branded **Marketing & Audience Report** (editable PPTX) for a paid webinar.")
 if not _CORE_OK:
     st.error("Report core not available: %s" % _CORE_ERR); st.stop()
+
+# ── Saved reports (last 5) ───────────────────────────────────────────────────
+_saved = list_reports()
+if _saved:
+    with st.expander("📁 Saved reports (last %d)" % len(_saved), expanded=False):
+        for i, e in enumerate(_saved):
+            cc = st.columns([1, 4, 2])
+            cov = cover_of(e)
+            if cov and os.path.exists(cov):
+                cc[0].image(cov, use_container_width=True)
+            cc[1].markdown("**%s**  \n%s · %s" % (e.get("title") or e["file"],
+                           (e.get("lang") or "").upper(), e.get("when", "")))
+            p = path_of(e)
+            if os.path.exists(p):
+                cc[2].download_button("⬇ PPTX", open(p, "rb").read(), file_name=e["file"],
+                                      mime=PPTX_MIME, key="dl_saved_%d" % i, use_container_width=True)
 
 ss = st.session_state
 
@@ -177,11 +195,15 @@ if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_c
             fname = "ATA_Webinar_Report_%s%s.pptx" % (lang.upper(), "_annotated" if annotated else "")
             path = generate_report(web, ins, ss["stats"], orgs, lang=lang,
                                    annotate=annotated, assets_dir=assets_dir, out_dir=out_dir, filename=fname)
-        with open(path, "rb") as fh:
-            st.success("Report ready — %s" % os.path.basename(path))
-            st.download_button("⬇ Download PPTX", fh.read(), file_name=os.path.basename(path),
-                               mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                               use_container_width=True)
+            import glob
+            slides = sorted(glob.glob(os.path.join(out_dir, "[0-9][0-9]_*.png")))
+            save_report(path, slides[0] if slides else None, {"title": title, "lang": lang})
+        st.success("Report ready — %s" % os.path.basename(path))
+        st.download_button("⬇ Download PPTX", open(path, "rb").read(), file_name=os.path.basename(path),
+                           mime=PPTX_MIME, use_container_width=True)
+        st.markdown("#### Preview")
+        for png in slides:
+            st.image(png, use_container_width=True)
     except Exception as e:
         import traceback
         st.error("Generation failed: %s" % e)

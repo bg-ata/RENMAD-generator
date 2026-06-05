@@ -12,6 +12,7 @@ env/
 # Generated slide outputs (ephemeral on Streamlit Cloud anyway)
 saved_slides/
 event_data/
+saved_reports/
 
 # Debug / test artefacts
 test_output.png
