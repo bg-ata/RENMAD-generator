@@ -2,17 +2,14 @@
 """
 📊 Webinar Reports — post-webinar marketing & audience report (paid webinars).
 
-Separate from the Webinar (slide) tool: this produces the branded, editable
-PPTX "Marketing & Audience Report" we send to the sponsor of a paid webinar.
+Separate from the Webinar (slide) tool: produces the branded, editable PPTX
+"Marketing & Audience Report" we send to the sponsor of a paid webinar.
 
-Inputs a colleague provides:
-  • the webinar link        → title, speakers, sponsor logo (auto)
-  • registration CSV (CRM)  → countries, industries, companies, job titles
-  • Zoom attendee CSV       → live attendance, retention, date, YouTube via link
-  • email campaign numbers  → reach slide (manual)
+Colleague flow:
+  paste the webinar link → upload registration + Zoom CSVs → type the email
+  numbers → pick language → Generate → download the editable PPTX.
 
-The stats engine and page scraper are vendored into ./report_core so the app
-runs anywhere (the design renderer is wired in at the Generate step next).
+Engine + scraper + renderer are vendored in ./report_core.
 """
 import os
 import sys
@@ -20,7 +17,6 @@ import tempfile
 
 import streamlit as st
 
-# ── report core (vendored into this repo so it runs anywhere) ────────────────
 _CORE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "report_core")
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
@@ -28,73 +24,79 @@ if _CORE not in sys.path:
 _CORE_OK, _CORE_ERR = True, ""
 try:
     from scraper.scrape import scrape_webinar
-    from engine.ingest import build_stats
-except Exception as e:                       # degrade gracefully, never crash the page
+    from engine.ingest import build_stats, load_registrations
+    from assemble import assemble
+    from design.render_proposal import generate_report
+except Exception as e:
     _CORE_OK, _CORE_ERR = False, str(e)
 
 LANGS = {"English": "en", "Español": "es", "Italiano": "it", "Polski": "pl"}
 
 st.title("📊 Webinar Reports")
 st.caption("Branded **Marketing & Audience Report** (editable PPTX) for a paid webinar.")
-
 if not _CORE_OK:
-    st.error("Report core not available: %s" % _CORE_ERR)
-    st.stop()
+    st.error("Report core not available: %s" % _CORE_ERR); st.stop()
 
-# ── 1 · Webinar details (auto from the link) ─────────────────────────────────
+ss = st.session_state
+
+
+def _tmp_csv(uploaded):
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+    f.write(uploaded.getvalue()); f.close(); return f.name
+
+
+# ── 1 · Webinar ──────────────────────────────────────────────────────────────
 st.subheader("1 · Webinar")
 c1, c2 = st.columns([4, 1])
 url = c1.text_input("Webinar link", placeholder="https://my.atainsights.com/webinar/…")
-lang = c2.selectbox("Report language", list(LANGS.keys()))
+lang_label = c2.selectbox("Report language", list(LANGS.keys()))
+lang = LANGS[lang_label]
 
 if st.button("Fetch details", disabled=not url):
     with st.spinner("Reading the webinar page…"):
         try:
-            st.session_state["scraped"] = scrape_webinar(url)
+            ss["scraped"] = scrape_webinar(url)
+            ss["speaker_photos"] = [s.get("photo") for s in ss["scraped"]["speakers"]]
         except Exception as e:
             st.error("Couldn't read that page: %s" % e)
 
-sc = st.session_state.get("scraped")
+sc = ss.get("scraped")
 if sc:
-    st.success("**%s**" % sc["title"])
-    st.write("**Speakers** (edit/confirm companies before generating):")
-    st.dataframe(
-        [{"Name": s["name"], "Role": s["role"], "Company": s["company"] or "—",
-          "Moderator": "✓" if s["is_moderator"] else ""} for s in sc["speakers"]],
-        use_container_width=True, hide_index=True,
+    t1, t2 = st.columns(2)
+    title = t1.text_input("Title (cover)", value=ss.get("title", sc["title"]), key="title")
+    subtitle = t2.text_input("Subtitle (cover)", value=ss.get("subtitle", ""), key="subtitle")
+    y1, y2 = st.columns(2)
+    youtube_url = y1.text_input("YouTube link (recording)", value=ss.get("yt", ""), key="yt")
+    logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in sc.get("logos", [])]
+    sponsor_sel = y2.selectbox("Sponsor logo (optional)", logo_opts)
+    st.caption("Speakers — edit names / roles / companies before generating:")
+    ss["speakers_edit"] = st.data_editor(
+        [{"Name": s["name"], "Role": s["role"], "Company": s["company"],
+          "Moderator": s["is_moderator"]} for s in sc["speakers"]],
+        num_rows="dynamic", use_container_width=True, hide_index=True, key="spk_editor",
     )
-    if sc.get("logos"):
-        st.caption("Logos found: " + " · ".join(l.split("/uploads/")[-1] for l in sc["logos"]))
 
 # ── 2 · Data files ───────────────────────────────────────────────────────────
 st.subheader("2 · Data files")
 d1, d2 = st.columns(2)
 reg_csv = d1.file_uploader("Registration CSV (CRM export)", type=["csv"])
 zoom_csv = d2.file_uploader("Zoom attendee CSV", type=["csv"])
-
 if reg_csv and zoom_csv:
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as fr:
-            fr.write(reg_csv.getvalue()); reg_path = fr.name
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as fz:
-            fz.write(zoom_csv.getvalue()); zoom_path = fz.name
-        stats = build_stats(reg_path, zoom_path)
-        st.session_state["stats"] = stats
-        kf = stats["key_facts"]
-        m = st.columns(5)
+        ss["reg_path"] = _tmp_csv(reg_csv)
+        ss["zoom_path"] = _tmp_csv(zoom_csv)
+        ss["stats"] = build_stats(ss["reg_path"], ss["zoom_path"])
+        kf = ss["stats"]["key_facts"]; m = st.columns(5)
         m[0].metric("Registrations", f"{kf['registrations']:,}")
-        m[1].metric("Companies", kf["companies"])
-        m[2].metric("Countries", kf["countries"])
-        m[3].metric("Live attendees", kf["live_attendees"])
-        m[4].metric("Attendance", f"{kf['attendance_rate_pct']:.0f}%")
+        m[1].metric("Companies", kf["companies"]); m[2].metric("Countries", kf["countries"])
+        m[3].metric("Live", kf["live_attendees"]); m[4].metric("Attendance", f"{kf['attendance_rate_pct']:.0f}%")
     except Exception as e:
         st.error("Could not read the CSVs: %s" % e)
 
-# ── 3 · Marketing numbers (manual) ───────────────────────────────────────────
+# ── 3 · Marketing numbers ────────────────────────────────────────────────────
 st.subheader("3 · Marketing numbers")
-st.caption("Email campaign sends / opens / clicks (from the email platform). "
-           "YouTube views are fetched automatically from the link.")
-st.data_editor(
+st.caption("Email campaign sends / opens / clicks. YouTube views are fetched automatically.")
+email_rows = st.data_editor(
     [{"Campaign": "E-shot 1", "Sent": 0, "Opens": 0, "Clicks": 0}],
     num_rows="dynamic", use_container_width=True, key="email_rows",
 )
@@ -102,14 +104,52 @@ st.data_editor(
 # ── 4 · Options ──────────────────────────────────────────────────────────────
 st.subheader("4 · Options")
 o1, o2 = st.columns(2)
-o1.toggle("Add 'highlights' notes (annotated version)", value=False, key="annotated")
-o2.text_input("Contact", value="Cintia Hernández · cintia.hernandez@ata.email", key="contact")
+annotated = o1.toggle("Add 'highlights' notes (annotated version)", value=False)
+contact = o2.text_input("Contact", value="Cintia Hernández · Business Development · cintia.hernandez@ata.email")
 
 # ── Generate ─────────────────────────────────────────────────────────────────
 st.divider()
-ready = bool(sc and st.session_state.get("stats"))
-if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_container_width=True):
-    st.info("Final render wiring is the next build step — the engine, scraper and "
-            "design renderer are ready; connecting them to these inputs comes next.")
+ready = bool(sc and ss.get("stats"))
 if not ready:
     st.caption("Add the webinar link and both CSVs to enable generation.")
+
+if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_container_width=True):
+    try:
+        with st.spinner("Building the report…"):
+            assets_dir = tempfile.mkdtemp(prefix="rep_assets_")
+            out_dir = tempfile.mkdtemp(prefix="rep_out_")
+            # speakers: merge edited rows with the scraped photo URLs (by index)
+            photos = ss.get("speaker_photos", [])
+            speakers = []
+            for i, row in enumerate(ss.get("speakers_edit", [])):
+                speakers.append({"name": row.get("Name", ""), "role": row.get("Role", ""),
+                                 "company": row.get("Company", ""),
+                                 "is_moderator": bool(row.get("Moderator")),
+                                 "photo": photos[i] if i < len(photos) else None})
+            # sponsor logo url from the picked filename
+            sponsor_url = ""
+            for l in sc.get("logos", []):
+                if sponsor_sel != "(none)" and l.endswith(sponsor_sel):
+                    sponsor_url = l; break
+            # contact parse "Name · Role · email"
+            cbits = [c.strip() for c in contact.split("·")]
+            contact_d = {"name": cbits[0] if cbits else "Cintia Hernández",
+                         "role": cbits[1] if len(cbits) > 1 else "Business Development",
+                         "email": cbits[-1] if "@" in cbits[-1] else "cintia.hernandez@ata.email"}
+            form = {"title": title, "subtitle": subtitle, "youtube_url": youtube_url,
+                    "sponsor_logo_url": sponsor_url, "email_rows": email_rows,
+                    "speakers": speakers, "contact": contact_d}
+            web, ins, orgs = assemble(sc, ss["stats"], load_registrations(ss["reg_path"]),
+                                      form, assets_dir, lang=lang, zoom_csv_path=ss["zoom_path"])
+            fname = "ATA_Webinar_Report_%s%s.pptx" % (lang.upper(), "_annotated" if annotated else "")
+            path = generate_report(web, ins, ss["stats"], orgs, lang=lang,
+                                   annotate=annotated, assets_dir=assets_dir, out_dir=out_dir, filename=fname)
+        with open(path, "rb") as fh:
+            st.success("Report ready — %s" % os.path.basename(path))
+            st.download_button("⬇ Download PPTX", fh.read(), file_name=os.path.basename(path),
+                               mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                               use_container_width=True)
+    except Exception as e:
+        import traceback
+        st.error("Generation failed: %s" % e)
+        st.code(traceback.format_exc())
