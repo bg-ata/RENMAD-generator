@@ -91,6 +91,20 @@ youtube_url = y1.text_input("YouTube link (recording)", key="yt",
 youtube_views = y2.text_input("YouTube views", key="ytv", placeholder="auto / type it")
 logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in (sc or {}).get("logos", [])]
 sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
+# show the resolved YouTube views (manual wins, else auto-fetch) so it's never a surprise
+_resolved_views = (youtube_views or "").strip()
+if not _resolved_views and youtube_url.strip():
+    if ss.get("_yt_url_cache") != youtube_url.strip():
+        from assemble import youtube_views as _fetch_views
+        ss["_yt_url_cache"] = youtube_url.strip()
+        ss["_yt_views_cache"] = _fetch_views(youtube_url.strip())
+    _resolved_views = ss.get("_yt_views_cache")
+if youtube_url.strip():
+    if _resolved_views:
+        st.caption("▶ YouTube views to be used: **%s** (added to Zoom for the total)." % _resolved_views)
+    else:
+        st.warning("Couldn't auto-read YouTube views — type the number in the **YouTube views** box "
+                   "or it won't be counted in the total.")
 if sc and sc.get("speakers"):
     st.caption("Speakers — edit names / roles / companies before generating:")
     ss["speakers_edit"] = st.data_editor(

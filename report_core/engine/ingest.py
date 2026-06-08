@@ -250,76 +250,109 @@ def _read_csv_rows(path: str) -> list[list[str]]:
         return list(csv.reader(fh))
 
 
+def _hcol(headers_lower, *subs):
+    """Index of the first header containing any of the substrings (lowercase)."""
+    for j, h in enumerate(headers_lower):
+        if any(sub in h for sub in subs):
+            return j
+    return None
+
+
+def _num(s):
+    m = re.search(r"\d[\d.,]*", s or "")
+    return int(re.sub(r"[^\d]", "", m.group())) if m else 0
+
+
+# multilingual (EN/ES/IT/PL) substrings per Zoom column concept
+_C = {
+    "attended": ("asisti", "attend", "partecip", "uczestni", "obecn", "frekw"),
+    "email": ("correo", "email", "e-mail", "mail", "poczta"),
+    "country": ("país/", "pais/", "country/", "paese/", "kraj", "país", "country", "paese"),
+    "uname": ("nombre de usuario", "user name", "nome utente", "nazwa użytk", "display name"),
+    "firstname": ("first name", "imię"),
+    "lastname": ("apellido", "last name", "cognome", "nazwisko"),
+    "registered": ("inscrit", "registered", "registr", "iscritt", "zarejestrow"),
+    "unique": ("exclusiv", "unique", "unici", "unikal"),
+    "total": ("usuarios totales", "total users", "utenti totali", "łączna liczba u"),
+    "peak": ("simultáneas máximas", "max concurrent", "simultanee massime", "jednoczesn", "concurrent"),
+    "duration": ("duración real", "actual duration", "durata effettiva", "rzeczywisty czas", "duration", "durata"),
+    "topic": ("tema", "topic", "argomento", "temat"),
+}
+_YES = ("sí", "si", "sì", "yes", "tak", "true", "1", "oui", "ja")
+_SECTION = ("detalles", "details", "dettagli", "szczegół", "host", "panel", "anfitri", "relator")
+
+
 def load_zoom(path: str) -> tuple[ZoomSummary, list[ZoomAttendee]]:
     rows = _read_csv_rows(path)
     summary = ZoomSummary()
 
-    # --- summary block: header row "Tema,..." followed by its value row ---
+    # --- summary block: header row with 'registered' + ('unique' or 'peak') ---
     for i, row in enumerate(rows):
-        if row and row[0].strip() == "Tema" and i + 1 < len(rows):
-            hdr, val = row, rows[i + 1]
-            idx = {h.strip(): j for j, h in enumerate(hdr)}
+        if i + 1 >= len(rows):
+            break
+        hl = [(c or "").strip().lower() for c in row]
+        if _hcol(hl, *_C["registered"]) is not None and (
+                _hcol(hl, *_C["unique"]) is not None or _hcol(hl, *_C["peak"]) is not None):
+            val = rows[i + 1]
 
-            def g(name, cast=str):
-                j = idx.get(name)
+            def g(key, cast=str):
+                j = _hcol(hl, *_C[key])
                 if j is None or j >= len(val):
-                    return cast() if cast is not str else ""
-                raw = val[j].strip()
-                if cast is int:
-                    m = re.search(r"\d+", raw)
-                    return int(m.group()) if m else 0
-                return raw
+                    return 0 if cast is int else ""
+                return _num(val[j]) if cast is int else val[j].strip()
 
-            summary.topic = g("Tema")
-            summary.registered = g("N.º inscritos", int)
-            summary.unique_viewers = g("Espectadores exclusivos", int)
-            summary.total_users = g("Usuarios totales", int)
-            summary.peak_concurrent = g("Vistas simultáneas máximas", int)
-            summary.actual_duration_min = g("Duración real (minutos)", int)
+            summary.topic = g("topic")
+            summary.registered = g("registered", int)
+            summary.unique_viewers = g("unique", int)
+            summary.total_users = g("total", int)
+            summary.peak_concurrent = g("peak", int)
+            summary.actual_duration_min = g("duration", int)
             break
 
-    # --- attendee block: header "...,Nombre,Apellido,...,Tiempo en la sesión..." ---
-    # The attendee section is the one whose header contains both "Nombre" and
-    # "Apellido" (host/panelist sections omit those split-name columns).
-    att_header_idx = None
+    # --- attendee section: header with first-name + last-name + email columns ---
+    att_idx = None
     for i, row in enumerate(rows):
-        joined = ",".join(row)
-        if "Nombre" in row and "Apellido" in row and "Tiempo en la sesión (minutos)" in joined:
-            att_header_idx = i
+        hl = [(c or "").strip().lower() for c in row]
+        fn = _hcol(hl, *_C["firstname"]) or next((j for j, h in enumerate(hl) if h in ("nombre", "nome")), None)
+        if _hcol(hl, *_C["lastname"]) is not None and _hcol(hl, *_C["email"]) is not None and fn is not None:
+            att_idx = i
             break
 
     merged: dict[str, ZoomAttendee] = {}
-    if att_header_idx is not None:
-        hdr = rows[att_header_idx]
-        idx = {h.strip(): j for j, h in enumerate(hdr)}
+    if att_idx is not None:
+        hl = [(c or "").strip().lower() for c in rows[att_idx]]
+        c_att = _hcol(hl, *_C["attended"])
+        c_email = _hcol(hl, *_C["email"])
+        c_country = _hcol(hl, *_C["country"])
+        c_uname = _hcol(hl, *_C["uname"])
+        c_fn = next((j for j, h in enumerate(hl) if h in ("nombre", "nome", "first name", "imię")), None)
+        c_ln = _hcol(hl, *_C["lastname"])
+        c_time = next((j for j, h in enumerate(hl)
+                       if "minut" in h and ("sesi" in h or "sessi" in h or "session" in h)), None)
 
-        def col(row, name):
-            j = idx.get(name)
+        def cell(row, j):
             return row[j].strip() if (j is not None and j < len(row)) else ""
 
-        for row in rows[att_header_idx + 1:]:
+        for row in rows[att_idx + 1:]:
             if not row or not any(c.strip() for c in row):
                 continue
-            # next section marker ("Detalles de ...") => stop
-            if row[0].strip().startswith("Detalles"):
+            if (row[0] or "").strip().lower().startswith(_SECTION):   # next section => stop
                 break
-            attended = col(row, "Asistió")
-            if attended.lower() not in ("sí", "si", "yes"):
-                continue
-            email = (col(row, "Correo electrónico") or col(row, "Correo")).lower().strip()
+            if c_att is not None:
+                a = cell(row, c_att).lower()
+                if a and a not in _YES:                               # skip no-shows
+                    continue
+            email = cell(row, c_email).lower()
             if not email:
                 continue
-            mins_raw = col(row, "Tiempo en la sesión (minutos)")
-            mins = int(re.search(r"\d+", mins_raw).group()) if re.search(r"\d+", mins_raw) else 0
-            name = col(row, "Nombre de usuario (nombre original)") or \
-                   " ".join(p for p in (col(row, "Nombre"), col(row, "Apellido")) if p)
-            country = col(row, "Nombre de país/región")
+            mins = _num(cell(row, c_time))
+            name = cell(row, c_uname) or " ".join(p for p in (cell(row, c_fn), cell(row, c_ln)) if p)
+            country = cell(row, c_country)
             if email in merged:
                 merged[email].minutes += mins
                 merged[email].sessions += 1
             else:
-                merged[email] = ZoomAttendee(email=email, name=name, country=country,
-                                             minutes=mins, sessions=1)
+                merged[email] = ZoomAttendee(email=email, name=name, country=country, minutes=mins, sessions=1)
 
     return summary, list(merged.values())
 
