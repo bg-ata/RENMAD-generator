@@ -76,25 +76,30 @@ if st.button("Fetch details", disabled=not url):
         try:
             ss["scraped"] = scrape_webinar(url)
             ss["speaker_photos"] = [s.get("photo") for s in ss["scraped"]["speakers"]]
+            ss["title"] = ss["scraped"].get("title", "")     # pre-fill the title box
         except Exception as e:
             st.error("Couldn't read that page: %s" % e)
 
 sc = ss.get("scraped")
-if sc:
-    t1, t2 = st.columns(2)
-    title = t1.text_input("Title (cover)", value=ss.get("title", sc["title"]), key="title")
-    subtitle = t2.text_input("Subtitle (cover)", value=ss.get("subtitle", ""), key="subtitle")
-    y1, y2, y3 = st.columns([2, 1, 1])
-    youtube_url = y1.text_input("YouTube link (recording)", value=ss.get("yt", ""), key="yt")
-    youtube_views = y2.text_input("YouTube views", placeholder="auto / type it", key="ytv")
-    logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in sc.get("logos", [])]
-    sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
+# These inputs are ALWAYS visible — Fetch just pre-fills the title + speaker list.
+t1, t2 = st.columns(2)
+title = t1.text_input("Title (cover)", key="title")
+subtitle = t2.text_input("Subtitle (cover)", key="subtitle")
+y1, y2, y3 = st.columns([2, 1, 1])
+youtube_url = y1.text_input("YouTube link (recording)", key="yt",
+                            placeholder="https://youtube.com/live/…")
+youtube_views = y2.text_input("YouTube views", key="ytv", placeholder="auto / type it")
+logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in (sc or {}).get("logos", [])]
+sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
+if sc and sc.get("speakers"):
     st.caption("Speakers — edit names / roles / companies before generating:")
     ss["speakers_edit"] = st.data_editor(
         [{"Name": s["name"], "Role": s["role"], "Company": s["company"],
           "Moderator": s["is_moderator"]} for s in sc["speakers"]],
         num_rows="dynamic", use_container_width=True, hide_index=True, key="spk_editor",
     )
+else:
+    st.caption("Paste a webinar link and click **Fetch details** to auto-fill the title and speakers.")
 
 # ── 2 · Data files ───────────────────────────────────────────────────────────
 st.subheader("2 · Data files")
