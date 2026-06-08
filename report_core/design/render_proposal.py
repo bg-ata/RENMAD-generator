@@ -71,7 +71,7 @@ STRINGS = {
         "registrations":"Registrations",
         "companies":"Companies","countries":"Countries","live":"Total viewers","attendance":"Attendance rate",
         "speakers":"Speakers","sec_aud":"AUDIENCE","country_title":"Where they joined from","by_region":"By region",
-        "countries_rep":"countries represented","ind_title":"Who was in the room","ind_note":"other / unspecified",
+        "countries_rep":"countries represented","ind_title":"Who registered","ind_note":"other / unspecified",
         "sec_comp":"COMPANIES","comp_title":"Who registered","sel_comp":"Selected registered companies",
         "sec_eng":"ENGAGEMENT","eng_title":"How they watched","ge30":"stayed 30 min or more","avg_conn":"Avg. connection",
         "peak":"Peak concurrent","top_country":"Top country","live_countries":"countries live","minutes":"min",
@@ -91,7 +91,7 @@ STRINGS = {
         "registrations":"Registros",
         "companies":"Empresas","countries":"Países","live":"Espectadores totales","attendance":"Tasa de asistencia",
         "speakers":"Ponentes","sec_aud":"AUDIENCIA","country_title":"Desde dónde se conectaron","by_region":"Por región",
-        "countries_rep":"países representados","ind_title":"Quién estuvo en la sala","ind_note":"otros / sin especificar",
+        "countries_rep":"países representados","ind_title":"Quién se registró","ind_note":"otros / sin especificar",
         "sec_comp":"EMPRESAS","comp_title":"Quién se registró","sel_comp":"Empresas registradas destacadas",
         "sec_eng":"ENGAGEMENT","eng_title":"Cómo lo siguieron","ge30":"permaneció 30 min o más","avg_conn":"Conexión media",
         "peak":"Pico simultáneo","top_country":"País principal","live_countries":"países en directo","minutes":"min",
@@ -111,7 +111,7 @@ STRINGS = {
         "registrations":"Registrazioni",
         "companies":"Aziende","countries":"Paesi","live":"Spettatori totali","attendance":"Tasso di partecipazione",
         "speakers":"Relatori","sec_aud":"AUDIENCE","country_title":"Da dove si sono collegati","by_region":"Per regione",
-        "countries_rep":"paesi rappresentati","ind_title":"Chi era presente","ind_note":"altri / non specificato",
+        "countries_rep":"paesi rappresentati","ind_title":"Chi si è registrato","ind_note":"altri / non specificato",
         "sec_comp":"AZIENDE","comp_title":"Chi si è registrato","sel_comp":"Aziende registrate selezionate",
         "sec_eng":"ENGAGEMENT","eng_title":"Come hanno seguito","ge30":"è rimasto 30 min o più","avg_conn":"Connessione media",
         "peak":"Picco simultaneo","top_country":"Paese principale","live_countries":"paesi live","minutes":"min",
@@ -131,7 +131,7 @@ STRINGS = {
         "registrations":"Rejestracje",
         "companies":"Firmy","countries":"Kraje","live":"Łączna widownia","attendance":"Frekwencja",
         "speakers":"Prelegenci","sec_aud":"AUDYTORIUM","country_title":"Skąd dołączyli","by_region":"Według regionu",
-        "countries_rep":"reprezentowanych krajów","ind_title":"Kto był na sali","ind_note":"inne / nieokreślone",
+        "countries_rep":"reprezentowanych krajów","ind_title":"Kto się zarejestrował","ind_note":"inne / nieokreślone",
         "sec_comp":"FIRMY","comp_title":"Kto się zarejestrował","sel_comp":"Wybrane zarejestrowane firmy",
         "sec_eng":"ZAANGAŻOWANIE","eng_title":"Jak oglądali","ge30":"pozostało 30 min lub dłużej","avg_conn":"Śr. połączenie",
         "peak":"Szczyt jednoczesny","top_country":"Główny kraj","live_countries":"krajów na żywo","minutes":"min",
@@ -447,7 +447,7 @@ def slide_country(st, lang):
     regs=st["regions"][:6]
     dcy=CY0+260
     donut(img,d,1380,dcy,150,46,[(r["label"],r["pct"],RAMP[i%len(RAMP)]) for i,r in enumerate(regs)],hole=WHITE)
-    T(d,(1380,dcy-15),f"{st['key_facts']['countries']}",black(46),CHAR,anchor="mm")
+    T(d,(1380,dcy-15),f"{st['countries'].get('distinct', st['key_facts']['countries'])}",black(46),CHAR,anchor="mm")
     T(d,(1380,dcy+30),s["countries_rep"],reg(13),MUTE,anchor="mm")
     ly=CY0+440
     for i,r in enumerate(regs):
@@ -510,7 +510,7 @@ def slide_engagement(st, lang):
     callout(d,120,lt+int(Hin*0.87),s["retention_fun"],"like",bg=YELLOW)
     tiles=[(f"{live['avg_minutes']:.0f} {s['minutes']}",s["avg_conn"],"clock",CORAL),
            (f"{live['peak_concurrent']}",s["peak"],"group",TEAL),
-           ("España",s["top_country"],"pin",ORANGE),
+           (live.get("top_country") or "—",s["top_country"],"pin",ORANGE),
            (f"{live['attendee_countries_represented']}",s["live_countries"],"globe",GREEN)]
     tx,twd,thd,tg=820,500,205,34; ty=lt
     for i,(num,lab,key,col) in enumerate(tiles):

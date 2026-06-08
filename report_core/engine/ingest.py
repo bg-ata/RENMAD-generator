@@ -141,6 +141,52 @@ def region_of(country: str) -> str:
     return _REGION.get(country.strip(), "Other")
 
 
+# Zoom exports country names in the account locale (often Spanish/Italian/Polish).
+# Map them to the English canonical names so regions + display stay consistent.
+_COUNTRY_CANON = {
+    # Spanish
+    "españa": "Spain", "alemania": "Germany", "francia": "France", "italia": "Italy",
+    "portugal": "Portugal", "reino unido": "United Kingdom", "países bajos": "Netherlands",
+    "holanda": "Netherlands", "bélgica": "Belgium", "suiza": "Switzerland", "austria": "Austria",
+    "polonia": "Poland", "rumanía": "Romania", "rumania": "Romania", "grecia": "Greece",
+    "suecia": "Sweden", "noruega": "Norway", "dinamarca": "Denmark", "finlandia": "Finland",
+    "croacia": "Croatia", "chipre": "Cyprus", "letonia": "Latvia", "lituania": "Lithuania",
+    "estonia": "Estonia", "hungría": "Hungary", "bulgaria": "Bulgaria", "ucrania": "Ukraine",
+    "turquía": "Turkey", "luxemburgo": "Luxembourg", "eslovenia": "Slovenia", "eslovaquia": "Slovakia",
+    "serbia": "Serbia", "irlanda": "Ireland", "república checa": "Czech Republic",
+    "méxico": "Mexico", "brasil": "Brazil", "chile": "Chile", "argentina": "Argentina",
+    "colombia": "Colombia", "perú": "Peru", "bolivia": "Bolivia", "ecuador": "Ecuador",
+    "uruguay": "Uruguay", "paraguay": "Paraguay", "el salvador": "El Salvador", "panamá": "Panama",
+    "costa rica": "Costa Rica", "guatemala": "Guatemala", "república dominicana": "Dominican Republic",
+    "honduras": "Honduras", "venezuela": "Venezuela",
+    "estados unidos": "United States", "canadá": "Canada",
+    "egipto": "Egypt", "marruecos": "Morocco", "jordania": "Jordan", "arabia saudí": "Saudi Arabia",
+    "arabia saudita": "Saudi Arabia", "emiratos árabes unidos": "United Arab Emirates",
+    "israel": "Israel", "túnez": "Tunisia", "argelia": "Algeria", "catar": "Qatar", "qatar": "Qatar",
+    "omán": "Oman", "kuwait": "Kuwait", "líbano": "Lebanon",
+    "sudáfrica": "South Africa", "nigeria": "Nigeria", "kenia": "Kenya", "togo": "Togo",
+    "ghana": "Ghana", "senegal": "Senegal", "etiopía": "Ethiopia", "tanzania": "Tanzania",
+    "zambia": "Zambia", "zimbabue": "Zimbabwe", "uganda": "Uganda",
+    "india": "India", "pakistán": "Pakistan", "china": "China", "japón": "Japan",
+    "corea del sur": "South Korea", "australia": "Australia", "nueva zelanda": "New Zealand",
+    "singapur": "Singapore", "filipinas": "Philippines", "indonesia": "Indonesia",
+    "malasia": "Malaysia", "tailandia": "Thailand", "vietnam": "Vietnam",
+    "bangladés": "Bangladesh", "kazajstán": "Kazakhstan",
+    # Italian
+    "spagna": "Spain", "germania": "Germany", "regno unito": "United Kingdom",
+    "paesi bassi": "Netherlands", "belgio": "Belgium", "svizzera": "Switzerland",
+    "stati uniti": "United States", "brasile": "Brazil", "messico": "Mexico", "grecia ": "Greece",
+    # Polish
+    "polska": "Poland", "niemcy": "Germany", "hiszpania": "Spain", "włochy": "Italy",
+    "francja": "France", "wielka brytania": "United Kingdom", "stany zjednoczone": "United States",
+}
+
+
+def normalize_country(country: str) -> str:
+    c = (country or "").strip()
+    return _COUNTRY_CANON.get(c.lower(), c)
+
+
 def _pct(n: int, total: int) -> float:
     return round(100.0 * n / total, 1) if total else 0.0
 
@@ -291,7 +337,7 @@ def live_analysis(summary: ZoomSummary, attendees: list[ZoomAttendee]) -> dict:
         "31-45": sum(1 for m in mins if 31 <= m <= 45),
         ">45": sum(1 for m in mins if m > 45),
     }
-    country_counts = Counter(a.country for a in attendees if a.country)
+    country_counts = Counter(normalize_country(a.country) for a in attendees if a.country)
     top_country, top_n = (country_counts.most_common(1)[0] if country_counts else ("", 0))
 
     return {
@@ -317,8 +363,13 @@ def build_stats(registration_csv: str, zoom_csv: str) -> dict:
 
     n_reg = len(regs)
     companies = company_list(regs)
-    countries = _distribution((r.country for r in regs), top=50)
-    region_counts = Counter(region_of(r.country) for r in regs if r.country)
+    # country distribution + regions come from the ZOOM ATTENDEES (where they
+    # actually joined from), normalised to English — NOT the registration list.
+    att_countries = [normalize_country(a.country) for a in attendees if a.country]
+    countries = _distribution(att_countries, top=50)
+    countries["distinct"] = len(set(att_countries))
+    region_counts = Counter(region_of(c) for c in att_countries)
+    reg_countries_distinct = len({r.country for r in regs if r.country})
 
     attendance_rate = _pct(live["unique_attendees"], n_reg)
 
@@ -326,7 +377,7 @@ def build_stats(registration_csv: str, zoom_csv: str) -> dict:
         "key_facts": {
             "registrations": n_reg,
             "companies": len(companies),
-            "countries": countries["total"] and len({r.country for r in regs if r.country}),
+            "countries": reg_countries_distinct,          # reach = countries registered
             "live_attendees": live["unique_attendees"],
             "attendance_rate_pct": attendance_rate,
         },
