@@ -89,15 +89,24 @@ y1, y2, y3 = st.columns([2, 1, 1])
 youtube_url = y1.text_input("YouTube link (recording)", key="yt",
                             placeholder="https://youtube.com/live/…")
 youtube_views = y2.text_input("YouTube views", key="ytv", placeholder="auto / type it")
+# 🔄 force a fresh auto-read (clears the cached result so the fetch logic below re-runs)
+if youtube_url.strip() and y2.button("🔄 Retry auto-read", key="yt_retry",
+                                     help="Re-fetch the YouTube view count from the link"):
+    ss.pop("_yt_url_cache", None)
+    ss.pop("_yt_views_cache", None)
 logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in (sc or {}).get("logos", [])]
 sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
 # show the resolved YouTube views (manual wins, else auto-fetch) so it's never a surprise
 _resolved_views = (youtube_views or "").strip()
 if not _resolved_views and youtube_url.strip():
-    if ss.get("_yt_url_cache") != youtube_url.strip():
+    _url_now = youtube_url.strip()
+    # Re-fetch when the URL changes OR the previous attempt failed. Never cache a
+    # failure as permanent: a one-off timeout / consent hiccup must self-heal on the
+    # next rerun, otherwise the warning sticks forever even though the scrape works.
+    if ss.get("_yt_url_cache") != _url_now or not ss.get("_yt_views_cache"):
         from assemble import youtube_views as _fetch_views
-        ss["_yt_url_cache"] = youtube_url.strip()
-        ss["_yt_views_cache"] = _fetch_views(youtube_url.strip())
+        ss["_yt_url_cache"] = _url_now
+        ss["_yt_views_cache"] = _fetch_views(_url_now)
     _resolved_views = ss.get("_yt_views_cache")
 if youtube_url.strip():
     if _resolved_views:

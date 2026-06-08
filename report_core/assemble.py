@@ -109,8 +109,17 @@ def youtube_views(url: str) -> str | None:
         # accept the EU cookie wall so YouTube serves the real page
         s.cookies.set("SOCS", "CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyaBg")
         r = s.get("https://www.youtube.com/watch?v=%s&hl=en&gl=US" % m.group(1), headers=UA, timeout=20)
-        v = re.search(r'"viewCount":\s*"(\d+)"', r.text)
-        return f"{int(v.group(1)):,}" if v else None
+        txt = r.text
+        # primary: videoDetails.viewCount is a plain integer string (normal + live VODs)
+        v = re.search(r'"viewCount":\s*"(\d+)"', txt)
+        if v:
+            return f"{int(v.group(1)):,}"
+        # fallback: some live/premiere pages expose it only as a rendered "1,234 views"
+        v = re.search(r'"(?:simpleText|content)":\s*"([\d.,]+)\s+views?"', txt)
+        if v:
+            digits = re.sub(r"[^\d]", "", v.group(1))
+            return f"{int(digits):,}" if digits else None
+        return None
     except Exception:
         return None
 
