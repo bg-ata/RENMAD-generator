@@ -404,6 +404,11 @@ def build_stats(registration_csv: str, zoom_csv: str) -> dict:
     region_counts = Counter(region_of(c) for c in att_countries)
     reg_countries_distinct = len({r.country for r in regs if r.country})
 
+    # job titles of the LIVE audience = attendees matched to their registration title (by email)
+    _title_by_email = {r.email.lower(): r.job_title for r in regs if r.email and r.job_title}
+    live_job_titles = [_title_by_email.get(a.email.lower(), "") for a in attendees]
+    live_job_titles = [t for t in live_job_titles if t and t.strip()]
+
     attendance_rate = _pct(live["unique_attendees"], n_reg)
 
     return {
@@ -423,6 +428,7 @@ def build_stats(registration_csv: str, zoom_csv: str) -> dict:
         "job_titles": _distribution((r.job_title for r in regs), top=40),
         "companies": companies,
         "live": live,
+        "live_job_titles": live_job_titles,
         "zoom_summary": asdict(summary),
     }
 

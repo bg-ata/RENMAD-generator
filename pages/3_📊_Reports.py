@@ -25,8 +25,7 @@ _CORE_OK, _CORE_ERR = True, ""
 try:
     from scraper.scrape import scrape_webinar
     from engine.ingest import build_stats, load_registrations
-    from assemble import assemble, relevant_orgs_rich, parse_email_block
-    from canonicalize import add_alias
+    from assemble import assemble, parse_email_block, derive_comp_sample, top_job_titles
     from design.render_proposal import generate_report
     from library import save_report, list_reports, path_of, cover_of
 except Exception as e:
@@ -96,6 +95,8 @@ if youtube_url.strip() and y2.button("🔄 Retry auto-read", key="yt_retry",
     ss.pop("_yt_views_cache", None)
 logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in (sc or {}).get("logos", [])]
 sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
+sponsor_name = st.text_input("Sponsor name (excluded from the company lists)", key="sponsor_name",
+                             placeholder="e.g. One Hub Energy")
 # show the resolved YouTube views (manual wins, else auto-fetch) so it's never a surprise
 _resolved_views = (youtube_views or "").strip()
 if not _resolved_views and youtube_url.strip():
@@ -134,7 +135,9 @@ if reg_csv and zoom_csv:
         ss["reg_path"] = _tmp_csv(reg_csv)
         ss["zoom_path"] = _tmp_csv(zoom_csv)
         ss["stats"] = build_stats(ss["reg_path"], ss["zoom_path"])
-        ss["orgs_rich"] = relevant_orgs_rich(load_registrations(ss["reg_path"]))
+        _regs = load_registrations(ss["reg_path"])
+        ss["comp_default"] = derive_comp_sample(_regs, exclude=[sponsor_name] if sponsor_name else None)
+        ss["titles_default"] = top_job_titles(ss["stats"].get("live_job_titles", []))
         kf = ss["stats"]["key_facts"]; m = st.columns(5)
         m[0].metric("Registrations", f"{kf['registrations']:,}")
         m[1].metric("Companies", kf["companies"]); m[2].metric("Countries", kf["countries"])
@@ -142,15 +145,19 @@ if reg_csv and zoom_csv:
     except Exception as e:
         st.error("Could not read the CSVs: %s" % e)
 
-# ── 3 · Highlighted organizations (approve / edit) ───────────────────────────
-if ss.get("orgs_rich"):
-    st.subheader("3 · Highlighted organizations")
-    st.caption("Auto-shortlisted from the live audience (job seniority + notable companies). "
-               "Edit, swap or remove — your name fixes are remembered for next time.")
-    ss["orgs_edit"] = st.data_editor(
-        [{"Company": o["company"], "Role": o["title"]} for o in ss["orgs_rich"]],
-        num_rows="dynamic", use_container_width=True, hide_index=True, key="orgs_editor",
-    )
+# ── 3 · Companies & job titles (auto — edit if needed) ───────────────────────
+if ss.get("stats"):
+    st.subheader("3 · Companies & job titles")
+    st.caption("Auto-filled — edit, add or remove rows before generating.")
+    cc1, cc2 = st.columns(2)
+    cc1.markdown("**Companies shown (slide 4)**")
+    ss["comp_edit"] = cc1.data_editor(
+        [{"Company": c} for c in ss.get("comp_default", [])],
+        num_rows="dynamic", use_container_width=True, hide_index=True, key="comp_editor")
+    cc2.markdown("**Top job titles (slide 8)** — most senior first")
+    ss["titles_edit"] = cc2.data_editor(
+        [{"Job title": t} for t in ss.get("titles_default", [])],
+        num_rows="dynamic", use_container_width=True, hide_index=True, key="titles_editor")
 
 # ── 4 · Marketing numbers ────────────────────────────────────────────────────
 st.subheader("4 · Marketing numbers")
@@ -203,21 +210,16 @@ if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_c
             cbits = [c.strip() for c in contact.split("·")]
             contact_d = {"name": cbits[0] if cbits else "Cintia Hernández",
                          "role": cbits[1] if len(cbits) > 1 else "Business Development",
-                         "email": cbits[-1] if "@" in cbits[-1] else "cintia.hernandez@ata.email"}
-            # highlighted orgs: use the approved/edited table + remember name fixes
-            orgs_override, rich = [], ss.get("orgs_rich", [])
-            for i, row in enumerate(ss.get("orgs_edit", []) or []):
-                comp = (row.get("Company") or "").strip()
-                if not comp:
-                    continue
-                orgs_override.append((comp, "", row.get("Role", "")))
-                if i < len(rich) and comp != rich[i]["company"]:
-                    add_alias(rich[i]["raw"], comp)        # learn the fix
+                         "email": cbits[-1] if "@" in cbits[-1] else "cintia.hernandez@ata.email",
+                         "phone": "+34 605 40 85 93"}
+            # companies (slide 4) + job titles (slide 8) from the editable tables
+            comp_override = [(r.get("Company") or "").strip() for r in ss.get("comp_edit", []) if (r.get("Company") or "").strip()]
+            titles_override = [(r.get("Job title") or "").strip() for r in ss.get("titles_edit", []) if (r.get("Job title") or "").strip()]
             form = {"title": title, "subtitle": subtitle, "youtube_url": youtube_url,
                     "youtube_views": youtube_views, "sponsor_logo_url": sponsor_url,
-                    "email_rows": email_rows, "email_totals": email_totals,
+                    "sponsor_name": sponsor_name, "email_rows": email_rows, "email_totals": email_totals,
                     "speakers": speakers, "contact": contact_d,
-                    "orgs_override": orgs_override or None}
+                    "comp_override": comp_override or None, "titles_override": titles_override or None}
             web, ins, orgs = assemble(sc, ss["stats"], load_registrations(ss["reg_path"]),
                                       form, assets_dir, lang=lang, zoom_csv_path=ss["zoom_path"])
             fname = "ATA_Webinar_Report_%s%s.pptx" % (lang.upper(), "_annotated" if annotated else "")

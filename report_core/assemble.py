@@ -13,7 +13,7 @@ from datetime import datetime
 
 import requests
 
-from canonicalize import canonical, clean_list, is_notable, seniority_score
+from canonicalize import canonical, clean_list, is_notable, seniority_score, norm_key
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"}
 
@@ -195,9 +195,52 @@ def derive_segments(regs, per_seg=8):
     return out
 
 
-def derive_comp_sample(regs, n=12):
+def derive_comp_sample(regs, n=18, exclude=None):
+    ex = {norm_key(x) for x in (exclude or []) if x}
     cnt = Counter(_clean_company(r.company) for r in regs if _is_real_company(_clean_company(r.company)))
-    return clean_list([c for c, _ in cnt.most_common(n * 2)])[:n]
+    cleaned = clean_list([c for c, _ in cnt.most_common(n * 3)])
+    return [c for c in cleaned if norm_key(c) not in ex][:n]
+
+
+# job-title cleanup: expand abbreviations, fix casing, keep acronyms
+_TITLE_FIX = [(r"\beng\b", "Engineering"), (r"\bmgr\b", "Manager"), (r"\bmgmt\b", "Management"),
+              (r"\bdir\b", "Director"), (r"\bdev\b", "Development"), (r"\bdevelopper\b", "Developer"),
+              (r"\bsr\b", "Senior"), (r"\bjr\b", "Junior"), (r"\bops\b", "Operations"),
+              (r"\bcomm\b", "Commercial"), (r"\bbd\b", "Business Development"), (r"\bproj\b", "Project")]
+_ACRON = {"CEO", "CTO", "COO", "CFO", "CIO", "VP", "SVP", "EVP", "M&A", "O&M", "PV", "EPC", "BESS",
+          "HR", "IT", "R&D", "ESG", "HSE", "QA", "QC", "QAQC", "BD", "PMO", "GIS", "ICT", "PPA"}
+_SMALL = {"of", "and", "the", "for", "in", "to", "at", "on", "de", "del", "la", "y", "e", "&", "a"}
+
+
+def clean_title(t):
+    t = re.sub(r"\s+", " ", (t or "").strip(" .,-"))
+    if not t:
+        return ""
+    for pat, rep in _TITLE_FIX:
+        t = re.sub(pat, rep, t, flags=re.I)
+    out = []
+    for i, w in enumerate(t.split(" ")):
+        core = re.sub(r"[^A-Za-z&]", "", w).upper()
+        if core in _ACRON:
+            out.append(w.upper())
+        elif i > 0 and w.lower() in _SMALL:
+            out.append(w.lower())
+        else:
+            out.append(w[:1].upper() + w[1:].lower() if len(w) > 1 else w.upper())
+    return " ".join(out)
+
+
+def top_job_titles(raw_titles, n=14, override=None):
+    if override:
+        return [t for t in override if t and t.strip()][:n]
+    cnt = Counter()
+    for t in raw_titles:
+        ct = clean_title(t)
+        if ct:
+            cnt[ct] += 1
+    # most senior first, then most frequent
+    items = sorted(cnt.items(), key=lambda kv: (-seniority_score(kv[0]), -kv[1], kv[0]))
+    return [t for t, _ in items[:n]]
 
 
 def relevant_orgs_rich(regs, n=9):
@@ -310,7 +353,13 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
             title, subtitle = parts[0].strip(), parts[1].strip()
     yt_url = form.get("youtube_url", "")
     contact = form.get("contact") or {"name": "Cintia Hernández", "role": "Business Development",
-                                      "email": "cintia.hernandez@ata.email"}
+                                      "email": "cintia.hernandez@ata.email", "phone": "+34 605 40 85 93"}
+    contact.setdefault("phone", "+34 605 40 85 93")
+    sponsor = form.get("sponsor_name") or ""
+    comp_sample = form.get("comp_override") or derive_comp_sample(regs, exclude=[sponsor] if sponsor else None)
+    if sponsor:
+        comp_sample = [c for c in comp_sample if norm_key(c) != norm_key(sponsor)]
+    job_titles = top_job_titles(stats.get("live_job_titles", []), override=form.get("titles_override"))
 
     webinar = {
         "title_lines": split_title(title),
@@ -322,10 +371,9 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
         "youtube_url": yt_url,
         "youtube_views": (form.get("youtube_views") or "").strip() or youtube_views(yt_url),
         "email": {"delivered": totals[0], "opened": totals[1], "clicked": totals[2], "rows": rows},
-        "segments": derive_segments(regs),
-        "comp_sample": derive_comp_sample(regs),
+        "comp_sample": comp_sample,
+        "job_titles": job_titles,
         "contact": contact,
     }
     insights = build_insights(stats, totals, lang)
-    orgs = form.get("orgs_override") or derive_relevant_orgs(regs)
-    return webinar, insights, orgs
+    return webinar, insights, job_titles

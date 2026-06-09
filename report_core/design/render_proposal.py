@@ -46,7 +46,7 @@ RAMP   = [ORANGE, CORAL, LIGHT, (255, 179, 122), (255, 205, 160), CHAR]
 ACCENTS = [ORANGE, CORAL, TEAL, YELLOW, GREEN, LIGHT]
 ICON = {"people":"E716","org":"E825","globe":"E774","video":"E714","gauge":"EC4A","mic":"E720",
         "clock":"E917","group":"E902","pin":"E707","send":"E724","mail":"E715","click":"E7C9",
-        "play":"E768","star":"E735","like":"E8E1","megaphone":"E789","power":"E81D","brief":"E821"}
+        "play":"E768","star":"E735","like":"E8E1","megaphone":"E789","power":"E81D","brief":"E821","phone":"E717"}
 _icon_candidates = [os.path.join(FONTS, "SegoeIcons.ttf"), r"C:\Windows\Fonts\SegoeIcons.ttf",
                     r"C:\Windows\Fonts\segmdl2.ttf"]
 ICON_FONT_PATH = next((p for p in _icon_candidates if os.path.exists(p)), _icon_candidates[0])
@@ -76,10 +76,10 @@ STRINGS = {
         "sec_eng":"ENGAGEMENT","eng_title":"How they watched","ge30":"stayed 30 min or more","avg_conn":"Avg. connection",
         "peak":"Peak concurrent","top_country":"Top country","live_countries":"countries live","minutes":"min",
         "retention":"Time connected (Zoom)","retention_fun":"Almost everyone stayed!","watch_yt":"Watch again on YouTube","yt_pending":"views — to be confirmed","views":"views",
-        "sec_reach":"MARKETING REACH","reach_title":"How we filled the room","delivered":"delivered","opened":"opened",
-        "clicked":"clicked","campaign":"Campaign","sent":"Sent","opens":"Opens","clicks":"Clicks",
-        "db_note":"Reaching our database of 86,000+ energy professionals","sec_orgs":"HIGHLIGHTS",
-        "orgs_title":"Most relevant organizations","orgs_sub":"A selection of notable companies and roles in the live audience",
+        "sec_reach":"MARKETING REACH","reach_title":"How we filled the room","delivered":"emails sent to our database","opened":"opened email",
+        "clicked":"clicked one or more links in the email","campaign":"Campaign","sent":"Sent","opens":"Opens","clicks":"Clicks","call_wa":"Call / WhatsApp",
+        "db_note":"Reaching our database of 86,000+ energy professionals","sec_orgs":"AUDIENCE",
+        "orgs_title":"Top job titles","orgs_sub":"The most senior roles among the live audience",
         "sec_contact":"LET'S TALK","contact_title":"Shall we talk about your next event?",
         "contact_sub":"For questions, comments or partnership proposals, reach out directly.",
         "watch_rec":"Watch the recording & download materials",
@@ -96,10 +96,10 @@ STRINGS = {
         "sec_eng":"ENGAGEMENT","eng_title":"Cómo lo siguieron","ge30":"permaneció 30 min o más","avg_conn":"Conexión media",
         "peak":"Pico simultáneo","top_country":"País principal","live_countries":"países en directo","minutes":"min",
         "retention":"Tiempo conectado (Zoom)","retention_fun":"¡Casi todos se quedaron!","watch_yt":"Vuelve a verlo en YouTube","yt_pending":"visualizaciones — por confirmar","views":"visualizaciones",
-        "sec_reach":"ALCANCE DE MARKETING","reach_title":"Cómo llenamos la sala","delivered":"entregados","opened":"aperturas",
-        "clicked":"clics","campaign":"Campaña","sent":"Enviados","opens":"Aperturas","clicks":"Clics",
-        "db_note":"Llegando a nuestra base de 86.000+ profesionales del sector","sec_orgs":"DESTACADOS",
-        "orgs_title":"Organizaciones más relevantes","orgs_sub":"Una selección de empresas y cargos destacados de la audiencia en directo",
+        "sec_reach":"ALCANCE DE MARKETING","reach_title":"Cómo llenamos la sala","delivered":"emails enviados a nuestra base","opened":"abrieron el email",
+        "clicked":"hicieron clic en uno o más enlaces del email","campaign":"Campaña","sent":"Enviados","opens":"Aperturas","clicks":"Clics","call_wa":"Llamada / WhatsApp",
+        "db_note":"Llegando a nuestra base de 86.000+ profesionales del sector","sec_orgs":"AUDIENCIA",
+        "orgs_title":"Principales cargos","orgs_sub":"Los cargos más senior de la audiencia en directo",
         "sec_contact":"HABLEMOS","contact_title":"¿Hablamos de tu próximo evento?",
         "contact_sub":"Para dudas, comentarios o propuestas de colaboración, contáctanos directamente.",
         "watch_rec":"Ve la grabación y descarga los materiales",
@@ -116,10 +116,10 @@ STRINGS = {
         "sec_eng":"ENGAGEMENT","eng_title":"Come hanno seguito","ge30":"è rimasto 30 min o più","avg_conn":"Connessione media",
         "peak":"Picco simultaneo","top_country":"Paese principale","live_countries":"paesi live","minutes":"min",
         "retention":"Tempo connesso (Zoom)","retention_fun":"Quasi tutti sono rimasti!","watch_yt":"Rivedi su YouTube","yt_pending":"visualizzazioni — da confermare","views":"visualizzazioni",
-        "sec_reach":"REACH DI MARKETING","reach_title":"Come abbiamo riempito la sala","delivered":"consegnate","opened":"aperture",
-        "clicked":"clic","campaign":"Campagna","sent":"Inviate","opens":"Aperture","clicks":"Clic",
-        "db_note":"Raggiungendo il nostro database di 86.000+ professionisti del settore","sec_orgs":"IN EVIDENZA",
-        "orgs_title":"Organizzazioni più rilevanti","orgs_sub":"Una selezione di aziende e ruoli di rilievo nel pubblico live",
+        "sec_reach":"REACH DI MARKETING","reach_title":"Come abbiamo riempito la sala","delivered":"email inviate al nostro database","opened":"hanno aperto l'email",
+        "clicked":"hanno cliccato uno o più link dell'email","campaign":"Campagna","sent":"Inviate","opens":"Aperture","clicks":"Clic","call_wa":"Chiamata / WhatsApp",
+        "db_note":"Raggiungendo il nostro database di 86.000+ professionisti del settore","sec_orgs":"AUDIENCE",
+        "orgs_title":"Principali ruoli","orgs_sub":"I ruoli più senior tra il pubblico live",
         "sec_contact":"PARLIAMONE","contact_title":"Parliamo del tuo prossimo evento?",
         "contact_sub":"Per domande, commenti o proposte di collaborazione, contattaci direttamente.",
         "watch_rec":"Guarda la registrazione e scarica i materiali",
@@ -136,10 +136,10 @@ STRINGS = {
         "sec_eng":"ZAANGAŻOWANIE","eng_title":"Jak oglądali","ge30":"pozostało 30 min lub dłużej","avg_conn":"Śr. połączenie",
         "peak":"Szczyt jednoczesny","top_country":"Główny kraj","live_countries":"krajów na żywo","minutes":"min",
         "retention":"Czas połączenia (Zoom)","retention_fun":"Prawie wszyscy zostali!","watch_yt":"Obejrzyj ponownie na YouTube","yt_pending":"wyświetleń — do potwierdzenia","views":"wyświetleń",
-        "sec_reach":"ZASIĘG MARKETINGOWY","reach_title":"Jak zapełniliśmy salę","delivered":"dostarczono","opened":"otwarć",
-        "clicked":"kliknięć","campaign":"Kampania","sent":"Wysłane","opens":"Otwarcia","clicks":"Kliknięcia",
-        "db_note":"Docierając do bazy 86 000+ specjalistów branży","sec_orgs":"WYRÓŻNIENIA",
-        "orgs_title":"Najważniejsze organizacje","orgs_sub":"Wybór znaczących firm i stanowisk wśród publiczności na żywo",
+        "sec_reach":"ZASIĘG MARKETINGOWY","reach_title":"Jak zapełniliśmy salę","delivered":"e-maili wysłanych do naszej bazy","opened":"otworzyło e-mail",
+        "clicked":"kliknęło co najmniej jeden link w e-mailu","campaign":"Kampania","sent":"Wysłane","opens":"Otwarcia","clicks":"Kliknięcia","call_wa":"Telefon / WhatsApp",
+        "db_note":"Docierając do bazy 86 000+ specjalistów branży","sec_orgs":"PUBLICZNOŚĆ",
+        "orgs_title":"Najczęstsze stanowiska","orgs_sub":"Najbardziej senioralne stanowiska wśród publiczności na żywo",
         "sec_contact":"POROZMAWIAJMY","contact_title":"Porozmawiamy o Twoim kolejnym wydarzeniu?",
         "contact_sub":"W razie pytań lub propozycji współpracy skontaktuj się z nami bezpośrednio.",
         "watch_rec":"Obejrzyj nagranie i pobierz materiały",
@@ -347,6 +347,18 @@ def chips(d, names, cx0, cy0, maxx, max_y, fs=22, pad=52, h=58, vstep=74, maxlen
         T(d, (cx + wpx / 2, cy + h / 2), nm, f, CHAR, anchor="mm")
         cx += wpx + 16
 
+def wrap_lines(d, text, font, maxw, max_lines=2):
+    words = (text or "").split(); lines = []; cur = ""
+    for w in words:
+        t = (cur + " " + w).strip()
+        if not cur or tw(d, t, font) <= maxw:
+            cur = t
+        else:
+            lines.append(cur); cur = w
+    if cur:
+        lines.append(cur)
+    return lines[:max_lines]
+
 def slide_cover(st, lang):
     s=STRINGS[lang]; img,d=canvas(GREY)
     PX=1170
@@ -472,7 +484,7 @@ def slide_industries(st, lang):
     # right card: selected companies (larger chips)
     card(d,[1110,CY0,1850,CY1])
     T(d,(1162,CY0+40),s["sel_comp"],bold(22),CHAR,anchor="la")
-    chips(d, WEBINAR.get("comp_sample", [])[:14], 1162, CY0+118, 1810, CY1-24, fs=20, h=56, vstep=72)
+    chips(d, WEBINAR.get("comp_sample", [])[:22], 1162, CY0+118, 1810, CY1-24, fs=20, h=56, vstep=72)
     footer(d,4,lang); return save(img,f"04_industries_{lang}.png")
 
 def slide_companies(st, lang):
@@ -493,7 +505,7 @@ def slide_companies(st, lang):
 
 def slide_engagement(st, lang):
     s=STRINGS[lang]; img,d=canvas(GREY); live=st["live"]
-    kicker(d,70,64,"04 · "+s["sec_eng"],s["eng_title"])
+    kicker(d,70,64,"03 · "+s["sec_eng"],s["eng_title"])
     draw_insight(d,"engagement")
     lt=ctop(210); Hin=(H-90)-lt
     card(d,[70,lt,760,H-90])
@@ -529,11 +541,11 @@ def slide_engagement(st, lang):
     global LINK_INFO
     LINK_INFO={"slide":5,"box":(958,yb+20,1840,H-90-20),"url":WEBINAR["youtube_url"],
                "title":s["watch_yt"],"line2":vline}
-    footer(d,6,lang); return save(img,f"06_engagement_{lang}.png")
+    footer(d,5,lang); return save(img,f"06_engagement_{lang}.png")
 
 def slide_reach(st, lang):
     s=STRINGS[lang]; img,d=canvas(GREY); em=WEBINAR["email"]
-    kicker(d,70,64,"05 · "+s["sec_reach"],s["reach_title"])
+    kicker(d,70,64,"04 · "+s["sec_reach"],s["reach_title"])
     star(d, tw(d,s["reach_title"],black(40))+110, 96, 28, YELLOW)
     draw_insight(d,"reach")
     cw,gx,x0,ch=570,35,70,200; y0=ctop(230)
@@ -542,16 +554,13 @@ def slide_reach(st, lang):
            (em["clicked"],s["clicked"],"click",TEAL,False)]
     for i,(num,lab,key,col,hero) in enumerate(stats):
         x=x0+i*(cw+gx)
-        if hero:
-            rrect(d,[x,y0,x+cw,y0+ch],18,fill=ORANGE)
-            badge(d,x+cw-70,y0+66,38,WHITE,key,ORANGE,32)
-            T(d,(x+50,y0+44),num,black(64),WHITE,anchor="la")
-            T(d,(x+54,y0+150),lab,semi(22),(255,224,210),anchor="la")
-        else:
-            card(d,[x,y0,x+cw,y0+ch],edge=col)
-            badge(d,x+cw-70,y0+66,38,col,key,WHITE,32)
-            T(d,(x+50,y0+44),num,black(64),CHAR,anchor="la")
-            T(d,(x+54,y0+150),lab,semi(22),MUTE,anchor="la")
+        numc, labc = (WHITE, (255,224,210)) if hero else (CHAR, MUTE)
+        if hero: rrect(d,[x,y0,x+cw,y0+ch],18,fill=ORANGE); badge(d,x+cw-70,y0+66,38,WHITE,key,ORANGE,32)
+        else:    card(d,[x,y0,x+cw,y0+ch],edge=col);        badge(d,x+cw-70,y0+66,38,col,key,WHITE,32)
+        T(d,(x+50,y0+44),num,black(64),numc,anchor="la")
+        lns=wrap_lines(d,lab,semi(18),cw-90,2)
+        for k,ln in enumerate(lns):
+            T(d,(x+54,y0+148+k*26),ln,semi(18),labc,anchor="la")
     ty=470+(y0-230); card(d,[70,ty,1850,ty+430])
     cols=[130,1040,1320,1600]
     for j,lbl in enumerate([s["campaign"],s["sent"],s["opens"],s["clicks"]]):
@@ -563,22 +572,22 @@ def slide_reach(st, lang):
         for j,val in zip(range(1,4),(sent,op,cl)): T(d,(cols[j],ry),val,reg(21),CHAR,anchor="rm")
     icon(d,82,ty+462,"people",18,MUTE)
     T(d,(106,ty+462),s["db_note"],reg(16),MUTE,anchor="lm")
-    footer(d,7,lang); return save(img,f"07_reach_{lang}.png")
+    footer(d,6,lang); return save(img,f"07_reach_{lang}.png")
 
-def slide_orgs(st, lang, orgs):
+def slide_titles(st, lang):
     s=STRINGS[lang]; img,d=canvas(GREY)
-    kicker(d,70,64,"06 · "+s["sec_orgs"],s["orgs_title"])
+    kicker(d,70,64,"05 · "+s["sec_orgs"],s["orgs_title"])
     draw_insight(d,"orgs")
     if not ANNOTATE: T(d,(70,212),s["orgs_sub"],reg(18),MUTE,anchor="la")
-    cw,ch,gx,gy=560,176,30,30; x0,y0=70,300
-    for i,(org,name,title) in enumerate(orgs[:9]):
-        c=i%3; r=i//3; x=x0+c*(cw+gx); y=y0+r*(ch+gy)
-        if x+cw>W-50: continue
+    titles=WEBINAR.get("job_titles",[])[:14]
+    cols=2; cw=870; gx=30; ch=84; gy=14; x0=70; y0=296
+    for i,tt in enumerate(titles):
+        c=i%cols; r=i//cols; x=x0+c*(cw+gx); y=y0+r*(ch+gy)
+        if y+ch>H-86: break
         card(d,[x,y,x+cw,y+ch],edge=ORANGE if i%2==0 else CORAL)
-        ttl=(title[:30]+"…") if len(title)>31 else title
-        T(d,(x+46,y+46),ttl,bold(25),CHAR,anchor="la")
-        T(d,(x+46,y+102),org,semi(21),ORANGE,anchor="la")
-    footer(d,8,lang); return save(img,f"08_orgs_{lang}.png")
+        ttl=(tt[:46].rstrip()+"…") if len(tt)>47 else tt
+        T(d,(x+46,y+ch//2),ttl,bold(24),CHAR,anchor="lm")
+    footer(d,7,lang); return save(img,f"08_orgs_{lang}.png")
 
 def slide_contact(st, lang):
     s=STRINGS[lang]; img,d=canvas(DEEP); ct=WEBINAR["contact"]
@@ -594,13 +603,15 @@ def slide_contact(st, lang):
     T(d,(120,212),s["contact_title"],black(50),WHITE,anchor="la")
     T(d,(122,320),s["contact_sub"],reg(20),(205,200,196),anchor="la")
     rows=[("people",ct["name"],ct["role"]+" · ATA Insights"),
+          ("phone",ct.get("phone",""),s.get("call_wa","")),
           ("mail",ct["email"],""),
           ("globe","atainsights.com · my.atainsights.com","")]
+    rows=[r for r in rows if r[1]]
     for i,(key,a,b) in enumerate(rows):
-        yy=470+i*100
+        yy=452+i*90
         badge(d,152,yy+14,32,ORANGE,key,WHITE,28)
-        T(d,(214,yy),a,bold(25),WHITE,anchor="la")
-        if b: T(d,(214,yy+38),b,reg(20),(205,200,196),anchor="la")
+        T(d,(214,yy),a,bold(24),WHITE,anchor="la")
+        if b: T(d,(214,yy+36),b,reg(19),(205,200,196),anchor="la")
     # sponsor co-brand lockup (only if a sponsor logo is present)
     sp_logo=WEBINAR.get("sponsor_logo")
     if sp_logo and os.path.exists(os.path.join(ASSETS,sp_logo)):
@@ -737,8 +748,8 @@ def generate_report(webinar, insights, stats, orgs, lang="en", annotate=False,
         if _kf.get("registrations"):
             _kf["attendance_rate_pct"] = round(100.0 * _kf["live_attendees"] / _kf["registrations"], 1)
     deck = [slide_cover(stats, lang), slide_facts(stats, lang), slide_country(stats, lang),
-            slide_industries(stats, lang), slide_companies(stats, lang), slide_engagement(stats, lang),
-            slide_reach(stats, lang), slide_orgs(stats, lang, orgs), slide_contact(stats, lang)]
+            slide_industries(stats, lang), slide_engagement(stats, lang),
+            slide_reach(stats, lang), slide_titles(stats, lang), slide_contact(stats, lang)]
     if not filename:
         filename = "ATA_Webinar_Report_%s%s.pptx" % (lang.upper(), "_annotated" if annotate else "")
     build_pptx(deck, filename, photos=list(COVER_PHOTOS), link=LINK_INFO)
