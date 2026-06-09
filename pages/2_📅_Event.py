@@ -2,6 +2,11 @@
 """
 📅 Event Image Generator — bulk per-event marketing material.
 
+Three-step flow:
+  1. Pick or create the event (sidebar).
+  2. Fill the event details + sponsors/logos (shared inputs).
+  3. Choose ONE output to make — Info graphic, Partner marketing, or Logo wall.
+
 Single "Role" field per row. The system infers tier/rank automatically:
   • "Diamond" / "Platinum" / "Global" / "Gold" / "Silver" / "Bronze" → "{TIER} SPONSOR"
   • "Standard" → just "SPONSOR"
@@ -28,7 +33,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import THEMES, LANGUAGE_STRINGS
-from generators.event_marketing_pack import generate_marketing_pack
+from generators.event_marketing_pack import generate_marketing_pack, _format_event_date
 from generators.t_ingo import generate as _generate_ingo
 
 
@@ -194,20 +199,118 @@ def _load_event_logos(eid: str) -> dict[str, bytes]:
     return out
 
 
+def _best_logo_for(company: str, pool_filenames: list[str],
+                   threshold: float = 0.55) -> str | None:
+    """Fuzzy-match a Company name to the best logo filename in the pool."""
+    co_slug = _slugify(company)
+    if not co_slug:
+        return None
+    best_fname = None
+    best_score = threshold
+    for fname in pool_filenames:
+        f_slug = _slugify(os.path.splitext(fname)[0])
+        if not f_slug:
+            continue
+        if co_slug == f_slug:
+            return fname        # perfect equal slug — short-circuit
+        if co_slug in f_slug or f_slug in co_slug:
+            score = 0.9
+        else:
+            score = SequenceMatcher(None, co_slug, f_slug).ratio()
+        if score > best_score:
+            best_score = score
+            best_fname = fname
+    return best_fname
+
+
+def _generate_for_partner(partner: dict, event_payload: dict,
+                          bg_image: Image.Image | None,
+                          logo_pool_local: dict[str, bytes]) -> dict[str, bytes]:
+    """Render the 4-banner marketing pack for one partner. Returns {filename: bytes}."""
+    logo_img = None
+    fname = partner.get("Logo file")
+    if fname and fname != NO_LOGO and fname in logo_pool_local:
+        try:
+            logo_img = Image.open(io.BytesIO(logo_pool_local[fname])).convert("RGBA")
+        except Exception:
+            logo_img = None
+    partner_payload = {
+        "company":    partner["Company"],
+        "role_label": role_to_banner_text(partner.get("Role", "")),
+        "logo_img":   logo_img,
+    }
+    return generate_marketing_pack(event_payload, partner_payload, bg_image=bg_image)
+
+
+def _build_ingo_tiers(partners_sorted_list, pool_bytes):
+    """Group partners into tiers (sponsors) and secondary (partners) for t_ingo / logo wall."""
+    tier_map      = {}
+    secondary_map = {}
+
+    for p in partners_sorted_list:
+        role  = (p.get("Role") or "").strip()
+        fname = p.get("Logo file", "")
+        logo_img = None
+        if fname and fname != NO_LOGO and fname in pool_bytes:
+            try:
+                logo_img = Image.open(io.BytesIO(pool_bytes[fname])).convert("RGBA")
+            except Exception:
+                logo_img = None
+
+        gidx, _ = role_rank_key(role)
+        display  = role_to_banner_text(role)
+
+        if gidx == 0:   # named sponsor tier
+            tier_map.setdefault(display, [])
+            if logo_img:
+                tier_map[display].append(logo_img)
+        else:            # partner / host / media / other → secondary
+            secondary_map.setdefault(display, [])
+            if logo_img:
+                secondary_map[display].append(logo_img)
+
+    def _tier_sort(name):
+        lower = name.lower()
+        for i, t in enumerate(TIER_ORDER):
+            if t in lower:
+                return i
+        return 99
+
+    tiers     = [{"name": n, "logos": logos}
+                 for n, logos in sorted(tier_map.items(), key=lambda x: _tier_sort(x[0]))]
+    secondary = [{"name": n, "logos": logos} for n, logos in secondary_map.items()]
+    return tiers, secondary
+
+
+def _renmad_logo_img() -> Image.Image | None:
+    """Load the RENMAD events logo from assets, if present."""
+    _logo_dir = os.path.normpath(os.path.join(_HERE, "..", "assets", "logos"))
+    for _rname in ("logo_renmad_events.png", "renmad_logo.png", "logo_renmad.png"):
+        _rpath = os.path.join(_logo_dir, _rname)
+        if os.path.exists(_rpath):
+            try:
+                return Image.open(_rpath).convert("RGBA")
+            except Exception:
+                return None
+    return None
+
+
 # ── Page chrome ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Event Image Generator", page_icon="📅", layout="wide")
 st.title("📅 Event Image Generator")
 st.caption(
-    "Generador masivo para eventos RENMAD. Sube los logos, pega desde Excel "
-    "(Company, Role), asigna cada logo y genera los 4 banners por sponsor / partner."
+    "Flujo en 3 pasos:  **1)** elige o crea el evento (barra lateral)  ·  "
+    "**2)** rellena datos, sponsors y logos  ·  **3)** elige qué generar: "
+    "Info, Partner marketing o Logo wall."
 )
 
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
+# ── Sidebar: pick / create the event ─────────────────────────────────────────
 existing = _events_list()
 
 with st.sidebar:
-    st.header("Events")
+    st.header("📅 Events")
+    st.caption("Elige el evento en el que trabajas, o crea uno nuevo.")
     options = ["➕ New event"] + [f"📁 {e.get('name', e['_id'])}" for e in existing]
     pick = st.selectbox("Open or create", options, key="event_pick")
 
@@ -219,26 +322,29 @@ with st.sidebar:
         active_event_id = existing[idx]["_id"]
         loaded_event = existing[idx]
 
-    if active_event_id and st.button("🗑️ Delete this event", use_container_width=True,
-                                       type="secondary"):
-        import shutil
-        try:
-            shutil.rmtree(_event_dir(active_event_id))
-            for k in list(st.session_state.keys()):
-                if k.startswith("_evt_") or k.startswith("logo_pick_") or k == "partners_table":
-                    del st.session_state[k]
-            st.toast(f"Deleted {active_event_id}")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Couldn't delete: {e}")
+    st.divider()
+    if active_event_id:
+        st.success(f"✏️ Editing **{loaded_event.get('name', active_event_id)}**")
+        if st.button("🗑️ Delete this event", use_container_width=True,
+                     type="secondary"):
+            import shutil
+            try:
+                shutil.rmtree(_event_dir(active_event_id))
+                for k in list(st.session_state.keys()):
+                    if k.startswith("_evt_") or k.startswith("logo_pick_") or k == "partners_table":
+                        del st.session_state[k]
+                st.toast(f"Deleted {active_event_id}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Couldn't delete: {e}")
+    else:
+        st.info("Creando un evento nuevo. Rellena los datos y pulsa **💾 Save event**.")
 
 
 # ── Detect event switch and POPULATE session_state directly ─────────────────
 # Streamlit widgets only honour `value=` if their key isn't already in
 # session_state. The most reliable pattern (used in the slides app too) is to
 # directly write the loaded values into session_state BEFORE the widgets render.
-# This guarantees the form shows the saved event's data — title, dates, partners,
-# logo picks, everything.
 import datetime as _dt_init
 
 _last_evt = st.session_state.get("_last_active_event_id", "<unset>")
@@ -247,9 +353,10 @@ if _last_evt != (active_event_id or "_new_"):
     for k in list(st.session_state.keys()):
         if k.startswith("logo_pick_"):
             del st.session_state[k]
-    # Reset bulk-paste accumulator and the data_editor version
+    # Reset bulk-paste accumulator, the paste box, and the data_editor version
     for k in list(st.session_state.keys()):
-        if k.startswith("_partners_v_") or k.startswith("_partners_extras_") or k.startswith("bulk_paste_"):
+        if (k.startswith("_partners_v_") or k.startswith("_partners_extras_")
+                or k.startswith("bulk_paste_") or k.startswith("_paste_v_")):
             del st.session_state[k]
     # Reset Ingo stats / variant (scoped per-event via widget keys so these clear automatically)
     for k in list(st.session_state.keys()):
@@ -257,7 +364,6 @@ if _last_evt != (active_event_id or "_new_"):
             del st.session_state[k]
 
     if loaded_event:
-        # Pre-populate every form widget from the saved JSON
         st.session_state["ev_name"]  = loaded_event.get("name", "")
         st.session_state["ev_theme"] = loaded_event.get("theme_key", "datacenters")
         st.session_state["ev_lang"]  = loaded_event.get("language", "es")
@@ -276,16 +382,10 @@ if _last_evt != (active_event_id or "_new_"):
             _de = _ds
         st.session_state["ev_date_range"] = (_ds, _de)
 
-        # Background photo choice
         st.session_state["ev_bg_choice"] = loaded_event.get("bg_lib_choice", "(none)")
 
-        # Partners table — DON'T set st.session_state["partners_table"] directly:
-        # Streamlit forbids assigning state to data_editor keys. Instead the
-        # data_editor widget below uses an event-scoped key + the saved data as
-        # its positional argument, so each event gets its own clean instance.
-        _saved_partners = loaded_event.get("partners", []) or []
-
         # Pre-fill each row's logo selectbox from the saved event
+        _saved_partners = loaded_event.get("partners", []) or []
         for i, p in enumerate(_saved_partners):
             st.session_state[f"logo_pick_{i}"] = p.get("Logo file", NO_LOGO)
     else:
@@ -307,12 +407,14 @@ if pool_key not in st.session_state:
 logo_pool: dict[str, bytes] = st.session_state[pool_key]
 
 
-# ── Step 1: Event setup ──────────────────────────────────────────────────────
-st.subheader("1. Event setup")
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 1 · EVENT DETAILS  (shared by every output)
+# ══════════════════════════════════════════════════════════════════════════════
+st.header("1 · Event details")
 
 c1, c2, c3 = st.columns([2, 1.2, 1])
-default_name = (loaded_event or {}).get("name", "")
-event_name = c1.text_input("Event name", value=default_name, key="ev_name")
+event_name = c1.text_input("Event name", key="ev_name",
+                           placeholder="e.g. RENMAD Datacenters 2026")
 
 theme_keys = sorted(THEMES.keys(), key=lambda k: THEMES[k]["name"])
 default_theme = (loaded_event or {}).get("theme_key", "datacenters")
@@ -335,7 +437,6 @@ language = c3.selectbox(
 import datetime as _dt
 
 # Structured dates: single range picker (airline-style — click start, click end).
-# Auto-localised to "18-19 NOV 2026" style per language at render time.
 _today = _dt.date.today()
 _saved_start = (loaded_event or {}).get("start_date")
 _saved_end   = (loaded_event or {}).get("end_date")
@@ -356,8 +457,8 @@ date_range = c4.date_input(
     format="DD/MM/YYYY",
 )
 
-# date_input returns a tuple when used in range mode. Until the user finishes
-# picking both dates, it may transiently return a 1-element tuple — handle both.
+# date_input returns a tuple in range mode. Until both dates are picked it may
+# transiently return a 1-element tuple — handle both.
 if isinstance(date_range, (list, tuple)):
     if len(date_range) >= 2:
         start_date, end_date = date_range[0], date_range[1]
@@ -368,12 +469,9 @@ if isinstance(date_range, (list, tuple)):
 else:
     start_date = end_date = date_range
 
-location = c5.text_input("Location",
-                          value=(loaded_event or {}).get("location", ""),
-                          key="ev_loc")
+location = c5.text_input("Location", key="ev_loc")
 
 # Preview the auto-localised date (so the user sees what will end up on the banner)
-from generators.event_marketing_pack import _format_event_date
 _dt_preview_en = _format_event_date(start_date.isoformat(), end_date.isoformat(), "en")
 _dt_preview_lang = _format_event_date(start_date.isoformat(), end_date.isoformat(), language)
 st.caption(
@@ -382,92 +480,88 @@ st.caption(
 )
 
 
-# ── Step 2: Background photo ─────────────────────────────────────────────────
-st.subheader("2. Background photo")
-st.caption(
-    "Selecciona la foto que aparecerá detrás de todos los banners de este evento. "
-    "Puedes elegir una de la librería del tema o subir la tuya."
-)
-
+# ── Background photo (event-level look; used by the Partner-marketing banners) ─
+# Tucked into a collapsed expander to keep the page tidy. The code inside still
+# runs every render, so `bg_image` is always resolved regardless of expand state.
 bg_image: Image.Image | None = None
 
-# Build library entries based on the selected theme
-_bg_folder = THEMES[theme_key].get("bg_folder", theme_key)
-if _bg_folder == "__all__":
-    # ATA Insights — aggregate every theme folder
-    lib_entries = []
-    for sub in sorted(os.listdir(BG_DIR) if os.path.isdir(BG_DIR) else []):
-        sub_path = os.path.join(BG_DIR, sub)
-        if not os.path.isdir(sub_path) or sub == "__all__":
-            continue
-        for f in sorted(os.listdir(sub_path)):
-            if f.lower().endswith((".png", ".jpg", ".jpeg")):
-                lib_entries.append((f"{sub}/{f}", os.path.join(sub_path, f)))
-    lib_folder = os.path.join(BG_DIR, "ata_insights")
-else:
-    lib_folder = os.path.join(BG_DIR, _bg_folder)
-    lib_entries = [
-        (f, os.path.join(lib_folder, f))
-        for f in sorted(os.listdir(lib_folder) if os.path.isdir(lib_folder) else [])
-        if f.lower().endswith((".png", ".jpg", ".jpeg"))
-    ]
-
-# Restore previously saved bg choice for this event (if any)
-saved_bg_choice = (loaded_event or {}).get("bg_lib_choice", "(none)")
-saved_custom_bg = os.path.join(_event_dir(active_event_id), "bg.png") if active_event_id else None
-
-bg_col_lib, bg_col_upload = st.columns([1, 1])
-
-with bg_col_lib:
-    if lib_entries:
-        display_names = ["(none)"] + [name for name, _ in lib_entries]
-        path_map      = {name: path for name, path in lib_entries}
-        default_idx = display_names.index(saved_bg_choice) if saved_bg_choice in display_names else 0
-        choice = st.selectbox("Pick from library", display_names,
-                               index=default_idx, key="ev_bg_choice")
-        if choice != "(none)":
-            bg_image = Image.open(path_map[choice]).convert("RGBA")
-            st.image(bg_image, use_container_width=True)
+with st.expander("🖼️ Background photo (optional — used by Partner-marketing banners)",
+                 expanded=False):
+    # Build library entries based on the selected theme
+    _bg_folder = THEMES[theme_key].get("bg_folder", theme_key)
+    if _bg_folder == "__all__":
+        lib_entries = []
+        for sub in sorted(os.listdir(BG_DIR) if os.path.isdir(BG_DIR) else []):
+            sub_path = os.path.join(BG_DIR, sub)
+            if not os.path.isdir(sub_path) or sub == "__all__":
+                continue
+            for f in sorted(os.listdir(sub_path)):
+                if f.lower().endswith((".png", ".jpg", ".jpeg")):
+                    lib_entries.append((f"{sub}/{f}", os.path.join(sub_path, f)))
+        lib_folder = os.path.join(BG_DIR, "ata_insights")
     else:
-        save_hint = ("all theme folders" if _bg_folder == "__all__"
-                     else f"assets/backgrounds/{_bg_folder}/")
-        st.caption(f"Library empty — upload a photo or add images directly to `{save_hint}`")
-        choice = "(none)"
+        lib_folder = os.path.join(BG_DIR, _bg_folder)
+        lib_entries = [
+            (f, os.path.join(lib_folder, f))
+            for f in sorted(os.listdir(lib_folder) if os.path.isdir(lib_folder) else [])
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        ]
 
-with bg_col_upload:
-    bg_file = st.file_uploader(
-        "Or upload your own photo",
-        type=["png", "jpg", "jpeg"], key="ev_bg_upload",
-    )
-    if bg_file:
-        bg_bytes = bg_file.getvalue()   # non-destructive
-        bg_image = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
-        st.image(bg_image, use_container_width=True,
-                 caption="This photo will be darkened automatically")
-        if st.button("💾 Save to this event's library", key="ev_save_bg",
-                     disabled=not _bg_folder or _bg_folder == "__all__"):
-            os.makedirs(lib_folder, exist_ok=True)
-            save_path = os.path.join(lib_folder, bg_file.name)
-            with open(save_path, "wb") as fout:
-                fout.write(bg_bytes)
-            st.success(f"Saved **{bg_file.name}** to the {THEMES[theme_key]['name']} library.")
-            st.rerun()
-    elif bg_image is None and saved_custom_bg and os.path.exists(saved_custom_bg):
-        # Restore custom bg saved with this event
-        try:
-            bg_image = Image.open(saved_custom_bg).convert("RGBA")
+    saved_bg_choice = (loaded_event or {}).get("bg_lib_choice", "(none)")
+    saved_custom_bg = os.path.join(_event_dir(active_event_id), "bg.png") if active_event_id else None
+
+    bg_col_lib, bg_col_upload = st.columns([1, 1])
+
+    with bg_col_lib:
+        if lib_entries:
+            display_names = ["(none)"] + [name for name, _ in lib_entries]
+            path_map      = {name: path for name, path in lib_entries}
+            default_idx = display_names.index(saved_bg_choice) if saved_bg_choice in display_names else 0
+            choice = st.selectbox("Pick from library", display_names,
+                                  index=default_idx, key="ev_bg_choice")
+            if choice != "(none)":
+                bg_image = Image.open(path_map[choice]).convert("RGBA")
+                st.image(bg_image, use_container_width=True)
+        else:
+            save_hint = ("all theme folders" if _bg_folder == "__all__"
+                         else f"assets/backgrounds/{_bg_folder}/")
+            st.caption(f"Library empty — upload a photo or add images directly to `{save_hint}`")
+            choice = "(none)"
+
+    with bg_col_upload:
+        bg_file = st.file_uploader(
+            "Or upload your own photo",
+            type=["png", "jpg", "jpeg"], key="ev_bg_upload",
+        )
+        if bg_file:
+            bg_bytes = bg_file.getvalue()   # non-destructive
+            bg_image = Image.open(io.BytesIO(bg_bytes)).convert("RGBA")
             st.image(bg_image, use_container_width=True,
-                     caption="Restored from this event's saved data")
-        except Exception:
-            pass
+                     caption="This photo will be darkened automatically")
+            if st.button("💾 Save to this event's library", key="ev_save_bg",
+                         disabled=not _bg_folder or _bg_folder == "__all__"):
+                os.makedirs(lib_folder, exist_ok=True)
+                save_path = os.path.join(lib_folder, bg_file.name)
+                with open(save_path, "wb") as fout:
+                    fout.write(bg_bytes)
+                st.success(f"Saved **{bg_file.name}** to the {THEMES[theme_key]['name']} library.")
+                st.rerun()
+        elif bg_image is None and saved_custom_bg and os.path.exists(saved_custom_bg):
+            try:
+                bg_image = Image.open(saved_custom_bg).convert("RGBA")
+                st.image(bg_image, use_container_width=True,
+                         caption="Restored from this event's saved data")
+            except Exception:
+                pass
 
 
-# ── Step 3: Logo pool ────────────────────────────────────────────────────────
-st.subheader("3. Logo pool")
-st.caption(
-    "Sube todos los logos del evento aquí. Después, en Step 3, asignas cada "
-    "logo a una empresa con un selectbox."
-)
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 2 · SPONSORS & LOGOS  (shared by every output)
+# ══════════════════════════════════════════════════════════════════════════════
+st.header("2 · Sponsors & logos")
+
+# ── Logo pool ────────────────────────────────────────────────────────────────
+st.markdown("**Logo pool** — sube todos los logos del evento aquí; luego asignas cada uno a una empresa.")
 
 uploads = st.file_uploader(
     "Drop logo files here (PNG, JPG, SVG)",
@@ -508,21 +602,16 @@ if logo_pool:
                     st.session_state[pool_key] = logo_pool
                     st.rerun()
 
-
-# ── Step 4: Sponsors & partners ──────────────────────────────────────────────
-st.subheader("4. Sponsors & partners")
-
+# ── Sponsors & partners table ────────────────────────────────────────────────
 st.markdown(
     """
-**Una sola columna para el rol — el sistema deduce el resto:**
+**Sponsors & partners** — una sola columna para el rol; el sistema deduce el resto:
 
 | Tú escribes | Banner muestra | Logo wall |
 |---|---|---|
 | `Diamond` / `Platinum` / `Global` / `Gold` / `Silver` / `Bronze` | `{TIER} SPONSOR` | Sponsor (por tier) |
 | `Standard` *(o vacío)* | `SPONSOR` | Sponsor tier 7 |
 | `Knowledge Partner` / `Media Partner` / *freeform* | uppercase verbatim | Partner / Other |
-
-Pega 2 columnas desde Excel: **Company**, **Role**.
 """,
     unsafe_allow_html=False,
 )
@@ -532,13 +621,21 @@ default_partners = (loaded_event or {}).get("partners", [])
 if not default_partners:
     default_partners = [{"Company": "", "Role": "", "Logo file": NO_LOGO}]
 
-# Strip any "Logo file" key from default — the table itself doesn't need it anymore
 table_init = [{"Company": p.get("Company", ""), "Role": p.get("Role", "")}
               for p in default_partners]
 
-# Bulk paste from Excel — solves Streamlit's multi-column paste issue
-# (in data_editor, pasting tab-separated rows often dumps everything in one cell).
+# Bulk paste from Excel — solves Streamlit's multi-column paste issue.
 # Pegas aquí → al pulsar Add se crean filas reales, una por línea.
+#
+# NOTE: the paste box key carries a per-event VERSION suffix. To clear the box
+# after a bulk-add we simply bump that version and rerun, so the text_area
+# re-instantiates empty. We must NOT assign st.session_state[paste_key] = ""
+# directly — Streamlit forbids mutating a widget's state key after the widget
+# has been instantiated in the same run (that was the StreamlitAPIException).
+_paste_v_key = f"_paste_v_{active_event_id or 'new'}"
+_paste_v = st.session_state.get(_paste_v_key, 0)
+paste_key = f"bulk_paste_{active_event_id or 'new'}_v{_paste_v}"
+
 with st.expander("📋 Pega la lista de empresas (bulk add)", expanded=True):
     st.caption(
         "Pega una empresa por línea, en **cualquier formato** — sirve copiado de Excel, "
@@ -546,7 +643,6 @@ with st.expander("📋 Pega la lista de empresas (bulk add)", expanded=True):
         "coma, raya, barra, punto y coma, tabulador o paréntesis. Si solo pones la "
         "empresa, el rol queda vacío."
     )
-    paste_key = f"bulk_paste_{active_event_id or 'new'}"
     paste_text = st.text_area(
         "Pega aquí", height=150, key=paste_key,
         placeholder=("HILTI, Diamond\n"
@@ -560,10 +656,9 @@ with st.expander("📋 Pega la lista de empresas (bulk add)", expanded=True):
                           disabled=not paste_text.strip())
     bp2.caption("Cada línea = una empresa. Luego asignas el logo de cada una abajo.")
 
-# IMPORTANT: data_editor's key MUST be unique per event. Streamlit forbids
+# data_editor's key MUST be unique per event. Streamlit forbids
 # st.session_state[key] = ... for data_editor, so the only way to "load" data is
 # to bump the widget key and pass new data as the positional argument.
-# We also bump the version each time a bulk-paste add happens.
 _partners_version_key = f"_partners_v_{active_event_id or 'new'}"
 _partners_extras_key  = f"_partners_extras_{active_event_id or 'new'}"
 _partners_version = st.session_state.get(_partners_version_key, 0)
@@ -595,30 +690,15 @@ if add_bulk and paste_text.strip():
         if cr and cr[0]:
             new_rows.append({"Company": cr[0], "Role": cr[1]})
     if new_rows:
-        # Capture any current edits from the data_editor so they don't get lost
-        prev_table_key = f"partners_table_{active_event_id or 'new'}_v{_partners_version}"
-        current_edits = st.session_state.get(prev_table_key)
-        if current_edits is not None:
-            try:
-                # data_editor's stored state can be a dict with "edited_rows" etc.
-                # Easier: rebuild from our last-known list + the edits' return value
-                # which we stored in `_partners_extras_key` last render. Skip the
-                # fancy reconciliation — keep what's in `table_init` + new_rows.
-                pass
-            except Exception:
-                pass
         _partners_extras = list(_partners_extras) + new_rows
         st.session_state[_partners_extras_key] = _partners_extras
         st.session_state[_partners_version_key] = _partners_version + 1
-        st.session_state[paste_key] = ""   # clear the paste area
-        _partners_version += 1
+        st.session_state[_paste_v_key] = _paste_v + 1   # bump → paste box clears on rerun
         st.toast(f"Added {len(new_rows)} row(s) from bulk paste")
         st.rerun()
 
 # Merge saved-event partners with anything added via bulk paste this session
-# (extras live in session_state and persist across reruns until the user saves)
 table_init_merged = list(table_init) + list(_partners_extras)
-# Remove fully-empty initial rows if we've got real content
 if any(r.get("Company", "").strip() for r in table_init_merged):
     table_init_merged = [r for r in table_init_merged if r.get("Company", "").strip()]
     if not table_init_merged:
@@ -644,41 +724,13 @@ table = st.data_editor(
     key=_partners_table_key,
 )
 
-
-# ── Step 5: Assign logos (per-row selectbox — same pattern as the slides app) ─
-st.subheader("5. Assign logos")
-
-if not logo_pool:
-    st.info("📤 Upload logos in Step 2 first, then you can assign them here.")
+# ── Assign logos (per-row selectbox — same pattern as the slides app) ─────────
+st.markdown("**Assign a logo to each company**")
 
 pool_options = [NO_LOGO] + sorted(logo_pool.keys())
 
-# Fuzzy auto-match: for each row, find the best logo filename match for the Company.
-# Uses substring containment AND difflib similarity ratio, so 'HILTI'
-# matches 'hilti-corporate-logo-2024.png', 'Linklaters' matches 'LL_linklaters.png', etc.
-def _best_logo_for(company: str, pool_filenames: list[str],
-                   threshold: float = 0.55) -> str | None:
-    co_slug = _slugify(company)
-    if not co_slug:
-        return None
-    best_fname = None
-    best_score = threshold
-    for fname in pool_filenames:
-        f_slug = _slugify(os.path.splitext(fname)[0])
-        if not f_slug:
-            continue
-        # Containment match gets a hard score boost
-        if co_slug == f_slug:
-            return fname        # perfect equal slug — short-circuit
-        if co_slug in f_slug or f_slug in co_slug:
-            score = 0.9
-        else:
-            score = SequenceMatcher(None, co_slug, f_slug).ratio()
-        if score > best_score:
-            best_score = score
-            best_fname = fname
-    return best_fname
-
+if not logo_pool:
+    st.info("📤 Upload logos above first, then you can assign them here.")
 
 auto_col1, auto_col2 = st.columns([1, 3])
 if auto_col1.button("🔗 Auto-match by name", use_container_width=True,
@@ -710,27 +762,6 @@ auto_col2.caption(
 saved_logos_by_company = {p.get("Company", ""): p.get("Logo file", NO_LOGO)
                           for p in default_partners}
 
-
-def _generate_for_partner(partner: dict, event_payload: dict,
-                          bg_image: Image.Image | None,
-                          logo_pool_local: dict[str, bytes]) -> dict[str, bytes]:
-    """Render the 4-banner marketing pack for one partner. Returns {filename: bytes}."""
-    logo_img = None
-    fname = partner.get("Logo file")
-    if fname and fname != NO_LOGO and fname in logo_pool_local:
-        try:
-            logo_img = Image.open(io.BytesIO(logo_pool_local[fname])).convert("RGBA")
-        except Exception:
-            logo_img = None
-    partner_payload = {
-        "company":    partner["Company"],
-        "role_label": role_to_banner_text(partner.get("Role", "")),
-        "logo_img":   logo_img,
-    }
-    return generate_marketing_pack(event_payload, partner_payload, bg_image=bg_image)
-
-
-# Render one row per partner, with company + role recap + logo selectbox + "just this" generate
 partners_clean = []
 for i, row in enumerate(table):
     company = (row.get("Company") or "").strip()
@@ -738,7 +769,7 @@ for i, row in enumerate(table):
         continue
     role = (row.get("Role") or "").strip()
 
-    # Determine the default index for the logo dropdown:
+    # Default index for the logo dropdown:
     #   priority: existing session_state pick → saved logo for this company → NO_LOGO
     sess_key = f"logo_pick_{i}"
     saved_for_co = saved_logos_by_company.get(company, NO_LOGO)
@@ -752,7 +783,7 @@ for i, row in enumerate(table):
         current_value = saved_for_co if saved_for_co in pool_options else NO_LOGO
         st.session_state[sess_key] = current_value
 
-    cc1, cc2, cc3, cc4, cc5 = st.columns([2.3, 2.3, 2, 1, 1.2])
+    cc1, cc2, cc3, cc4 = st.columns([2.5, 2.5, 2.2, 1])
     cc1.markdown(f"**{company}**")
     cc2.markdown(f"`{role_to_banner_text(role)}`" if role
                  else "`SPONSOR` *(default — empty role)*")
@@ -767,78 +798,54 @@ for i, row in enumerate(table):
     else:
         cc4.markdown("⚠️ *no logo*")
 
-    # Per-row generate button — regenerates only this partner and merges into
-    # the existing pack so previously-generated partners stay intact.
-    if cc5.button("🎨 Just this", key=f"gen_one_{i}",
-                  use_container_width=True,
-                  disabled=not event_name,
-                  help=f"Regenerate just {company}'s 4 banners (merges into the current pack)"):
-        ev_payload = {
-            "name":           event_name,
-            "theme_key":      theme_key,
-            "language":       language,
-            "start_date":     start_date.isoformat(),
-            "end_date":       end_date.isoformat(),
-            "location":       location,
-        }
-        partner_for_gen = {
-            "Company":   company,
-            "Role":      role,
-            "Logo file": selected_logo,
-        }
-        with st.spinner(f"Generating {company}…"):
-            new_pack = _generate_for_partner(partner_for_gen, ev_payload,
-                                              bg_image, logo_pool)
-        # Merge: replace any previous entries for this company's slug
-        existing = dict(st.session_state.get("_last_event_pack", {}))
-        slug = _slugify(company)
-        for k in list(existing.keys()):
-            if k.startswith(f"{slug}/"):
-                del existing[k]
-        for fname2, fbytes in new_pack.items():
-            existing[f"{slug}/{fname2}"] = fbytes
-        st.session_state["_last_event_pack"] = existing
-        st.session_state["_last_event_name"] = event_name
-        st.toast(f"✅ Regenerated {company}")
-        st.rerun()
-
     partners_clean.append({
         "Company":   company,
         "Role":      role,
         "Logo file": selected_logo,
     })
 
-# Sort by inferred rank for the logo-wall preview later
+# Sort by inferred rank for the logo-wall / ingo tiers
 partners_clean_sorted = sorted(
     partners_clean,
     key=lambda p: (role_rank_key(p["Role"]), p["Company"].lower()),
 )
 
 
-# ── Step 6: Generate / save ──────────────────────────────────────────────────
+# ── Save event (shared) ──────────────────────────────────────────────────────
 st.divider()
-ac1, ac2, ac3 = st.columns([1.4, 1, 1])
+sv1, sv2, sv3 = st.columns([1.4, 1, 3])
 ev_id_for_save = active_event_id or _slugify(event_name) or "event"
 
-generate_btn = ac1.button(
-    "🎨 Generate marketing pack", type="primary",
-    use_container_width=True,
-    disabled=not partners_clean or not event_name,
-)
-save_btn = ac2.button(
-    "💾 Save event", use_container_width=True,
-    disabled=not event_name,
-)
-if ac3.button("🔄 Refresh", use_container_width=True):
+save_btn = sv1.button("💾 Save event", type="primary",
+                      use_container_width=True, disabled=not event_name)
+if sv2.button("🔄 Refresh", use_container_width=True):
     st.rerun()
+sv3.caption("Guarda nombre, fechas, sponsors y logos. Las imágenes generadas se "
+            "descargan/guardan en cada sección de abajo.")
 
 if save_btn:
     _eid_s = active_event_id or 'new'
-    _saved_ingo_stats = [
-        {"num": st.session_state.get(f"_ingo_num_{i}_{_eid_s}", ""),
-         "label": st.session_state.get(f"_ingo_lab_{i}_{_eid_s}", "")}
-        for i in range(3)
+    # Preserve previously-saved Ingo stats if the Info section wasn't opened this
+    # session (its widget keys won't exist yet — fall back to the saved values).
+    _ingo_default = (loaded_event or {}).get("ingo_stats") or [
+        {"num": "", "label": "ATTENDEES"},
+        {"num": "", "label": "SPEAKERS"},
+        {"num": "", "label": "NETWORKING HOURS"},
     ]
+    _saved_ingo_stats = []
+    for i in range(3):
+        kn = f"_ingo_num_{i}_{_eid_s}"
+        kl = f"_ingo_lab_{i}_{_eid_s}"
+        if kn in st.session_state or kl in st.session_state:
+            _fallback_lab = _ingo_default[i]["label"] if i < len(_ingo_default) else ""
+            _saved_ingo_stats.append({
+                "num":   st.session_state.get(kn, ""),
+                "label": st.session_state.get(kl, _fallback_lab),
+            })
+        else:
+            _saved_ingo_stats.append(_ingo_default[i] if i < len(_ingo_default)
+                                     else {"num": "", "label": ""})
+
     event_payload = {
         "name":           event_name,
         "theme_key":      theme_key,
@@ -855,490 +862,449 @@ if save_btn:
     st.rerun()
 
 
-# ── Generation ───────────────────────────────────────────────────────────────
-if generate_btn:
-    event_payload = {
-        "name":       event_name,
-        "theme_key":  theme_key,
-        "language":   language,
-        "start_date": start_date.isoformat(),
-        "end_date":   end_date.isoformat(),
-        "location":   location,
+# Shared event payload for all generators below
+event_payload = {
+    "name":       event_name,
+    "theme_key":  theme_key,
+    "language":   language,
+    "start_date": start_date.isoformat(),
+    "end_date":   end_date.isoformat(),
+    "location":   location,
+}
+_eid_i = active_event_id or "new"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 3 · WHAT DO YOU WANT TO MAKE?
+# ══════════════════════════════════════════════════════════════════════════════
+st.header("3 · What do you want to make?")
+
+MODE_INFO    = "📸 Info graphic"
+MODE_PARTNER = "🎨 Partner marketing"
+MODE_WALL    = "🖼️ Logo wall"
+
+mode = st.radio(
+    "Choose what to generate",
+    [MODE_INFO, MODE_PARTNER, MODE_WALL],
+    horizontal=True,
+    key="event_output_mode",
+    label_visibility="collapsed",
+)
+st.caption({
+    MODE_INFO:    "📸 **Info graphic** — la infografía 1200×630 del evento (Evento · Ponente · Asistente · Sponsor), ES + EN.",
+    MODE_PARTNER: "🎨 **Partner marketing** — 4 banners por sponsor/partner, con el fondo elegido arriba.",
+    MODE_WALL:    "🖼️ **Logo wall** — el muro de logos 1920px, sponsors ordenados por tier, ES + EN.",
+}[mode])
+st.divider()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MODE: Partner marketing
+# ──────────────────────────────────────────────────────────────────────────────
+if mode == MODE_PARTNER:
+    st.subheader("🎨 Partner marketing pack")
+
+    generate_btn = st.button(
+        "🎨 Generate marketing pack", type="primary",
+        use_container_width=True,
+        disabled=not partners_clean or not event_name,
+    )
+    if not partners_clean:
+        st.info("Añade al menos un sponsor/partner arriba (paso 2).")
+
+    if generate_btn:
+        all_outputs: dict[str, bytes] = {}
+        with st.spinner(f"Generating banners for {len(partners_clean)} partners…"):
+            for p in partners_clean_sorted:
+                new_pack = _generate_for_partner(p, event_payload, bg_image, logo_pool)
+                slug = _slugify(p["Company"])
+                for fname2, fbytes in new_pack.items():
+                    all_outputs[f"{slug}/{fname2}"] = fbytes
+        st.session_state["_last_event_pack"] = all_outputs
+        st.session_state["_last_event_name"] = event_name
+        st.success(
+            f"Generated {len(all_outputs)} banners for {len(partners_clean)} partners."
+        )
+
+    # ── Preview & download ────────────────────────────────────────────────────
+    pack = st.session_state.get("_last_event_pack")
+    if pack:
+        st.divider()
+        st.subheader(f"Preview — {len(pack)} banners")
+
+        by_company: dict[str, dict[str, bytes]] = {}
+        for key, b in pack.items():
+            company, fname = key.split("/", 1)
+            by_company.setdefault(company, {})[fname] = b
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path, data in pack.items():
+                zf.writestr(path, data)
+        pack_label = _slugify(st.session_state.get("_last_event_name") or "event")
+        st.download_button(
+            f"📦 Download all {len(pack)} banners (ZIP)",
+            data=zip_buf.getvalue(),
+            file_name=f"{pack_label}_marketing_pack.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
+
+        for company, files in by_company.items():
+            with st.expander(f"**{company}** — {len(files)} banners", expanded=True):
+                # Per-partner ZIP — handy when you only need to send out THAT
+                # sponsor's pack, not the full event archive.
+                partner_zip_buf = io.BytesIO()
+                with zipfile.ZipFile(partner_zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for fname, fbytes in files.items():
+                        zf.writestr(fname, fbytes)
+                st.download_button(
+                    f"📦 Download {company}'s {len(files)} banners (ZIP)",
+                    data=partner_zip_buf.getvalue(),
+                    file_name=f"{pack_label}_{_slugify(company)}_marketing_pack.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    key=f"zip_{company}",
+                )
+
+                cols = st.columns(min(4, len(files)))
+                for i, (fname, fbytes) in enumerate(files.items()):
+                    col = cols[i % len(cols)]
+                    col.image(fbytes, use_container_width=True, caption=fname)
+                    col.download_button(
+                        "Download", data=fbytes,
+                        file_name=f"{_slugify(company)}_{fname}",
+                        mime="image/png", use_container_width=True,
+                        key=f"dl_{company}_{fname}",
+                    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MODE: Info graphic (Ingo — 1200×630)
+# ──────────────────────────────────────────────────────────────────────────────
+elif mode == MODE_INFO:
+    st.subheader("📸 Event Info graphic — 1 200 × 630 px")
+    st.caption(
+        "Infografía del evento con fondo blanco y círculo vacío para la foto del usuario. "
+        "Se generan 8 formatos: 4 ES + 4 EN (Evento · Ponente · Asistente · Sponsor)."
+    )
+
+    from generators.t_ingo import (generate_all_variants as _gen_all_ingos,
+                                    ALL_VARIANTS as _INGO_VARIANTS)
+
+    _VARIANT_CAPTIONS = {
+        "":          "Event",
+        "ponente":   "Ponente / Speaker",
+        "asistente": "Asistente / Attendee",
+        "patro":     "Sponsor Oficial",
     }
 
-    all_outputs: dict[str, bytes] = {}
-    with st.spinner(f"Generating banners for {len(partners_clean)} partners…"):
-        for p in partners_clean_sorted:
-            new_pack = _generate_for_partner(p, event_payload, bg_image, logo_pool)
-            slug = _slugify(p["Company"])
-            for fname2, fbytes in new_pack.items():
-                all_outputs[f"{slug}/{fname2}"] = fbytes
+    # Defaults from saved event (or blank if new)
+    _saved_ingo = (loaded_event or {}).get("ingo_stats", [
+        {"num": "", "label": "ATTENDEES"},
+        {"num": "", "label": "SPEAKERS"},
+        {"num": "", "label": "NETWORKING HOURS"},
+    ])
 
-    st.session_state["_last_event_pack"] = all_outputs
-    st.session_state["_last_event_name"] = event_name
-    st.success(
-        f"Generated {len(all_outputs)} banners for {len(partners_clean)} partners."
-    )
+    st.markdown("**Event stats** — shown as icons + numbers in the Info graphic:")
+    is1, is2, is3 = st.columns(3)
 
+    with is1:
+        st.caption("👥 Attendees")
+        ingo_num_0 = st.text_input(
+            "Attendees number", key=f"_ingo_num_0_{_eid_i}",
+            value=_saved_ingo[0].get("num", "") if _saved_ingo else "",
+            placeholder="e.g. 300+", label_visibility="collapsed",
+        )
+        ingo_lab_0 = st.text_input(
+            "Attendees label", key=f"_ingo_lab_0_{_eid_i}",
+            value=_saved_ingo[0].get("label", "ATTENDEES") if _saved_ingo else "ATTENDEES",
+            label_visibility="collapsed",
+        )
 
-# ── Preview & download ───────────────────────────────────────────────────────
-pack = st.session_state.get("_last_event_pack")
-if pack:
-    st.divider()
-    st.subheader(f"Preview — {len(pack)} banners")
+    with is2:
+        st.caption("🎤 Speakers")
+        ingo_num_1 = st.text_input(
+            "Speakers number", key=f"_ingo_num_1_{_eid_i}",
+            value=_saved_ingo[1].get("num", "") if len(_saved_ingo) > 1 else "",
+            placeholder="e.g. 40", label_visibility="collapsed",
+        )
+        ingo_lab_1 = st.text_input(
+            "Speakers label", key=f"_ingo_lab_1_{_eid_i}",
+            value=_saved_ingo[1].get("label", "SPEAKERS") if len(_saved_ingo) > 1 else "SPEAKERS",
+            label_visibility="collapsed",
+        )
 
-    by_company: dict[str, dict[str, bytes]] = {}
-    for key, b in pack.items():
-        company, fname = key.split("/", 1)
-        by_company.setdefault(company, {})[fname] = b
+    with is3:
+        st.caption("🤝 Networking")
+        ingo_num_2 = st.text_input(
+            "Networking number", key=f"_ingo_num_2_{_eid_i}",
+            value=_saved_ingo[2].get("num", "") if len(_saved_ingo) > 2 else "",
+            placeholder="e.g. 8", label_visibility="collapsed",
+        )
+        ingo_lab_2 = st.text_input(
+            "Networking label", key=f"_ingo_lab_2_{_eid_i}",
+            value=_saved_ingo[2].get("label", "NETWORKING HOURS") if len(_saved_ingo) > 2 else "NETWORKING HOURS",
+            label_visibility="collapsed",
+        )
 
-    zip_buf = io.BytesIO()
-    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path, data in pack.items():
-            zf.writestr(path, data)
-    pack_label = _slugify(st.session_state.get("_last_event_name") or "event")
-    st.download_button(
-        f"📦 Download all {len(pack)} banners (ZIP)",
-        data=zip_buf.getvalue(),
-        file_name=f"{pack_label}_marketing_pack.zip",
-        mime="application/zip",
+    ingo_stats_current = [
+        {"num": ingo_num_0, "label": ingo_lab_0},
+        {"num": ingo_num_1, "label": ingo_lab_1},
+        {"num": ingo_num_2, "label": ingo_lab_2},
+    ]
+
+    ig1, ig2 = st.columns([1, 3])
+    gen_ingo_btn = ig1.button(
+        "📸 Generate all Info graphics", type="primary",
         use_container_width=True,
+        disabled=not event_name,
+    )
+    ig2.caption(
+        "Genera los 8 formatos a la vez — 4 en español + 4 en inglés "
+        "(Evento · Ponente · Asistente · Sponsor). "
+        "El círculo queda vacío para que cada persona añada su foto."
     )
 
-    for company, files in by_company.items():
-        with st.expander(f"**{company}** — {len(files)} banners", expanded=True):
-            # Per-partner ZIP — handy when a new sponsor is added and you only
-            # need to send out THAT sponsor's pack, not the full event archive
-            partner_zip_buf = io.BytesIO()
-            with zipfile.ZipFile(partner_zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for fname, fbytes in files.items():
-                    zf.writestr(fname, fbytes)
-            st.download_button(
-                f"📦 Download {company}'s {len(files)} banners (ZIP)",
-                data=partner_zip_buf.getvalue(),
-                file_name=f"{pack_label}_{_slugify(company)}_marketing_pack.zip",
-                mime="application/zip",
-                use_container_width=True,
-                key=f"zip_{company}",
-            )
+    if gen_ingo_btn:
+        _tiers, _secondary = _build_ingo_tiers(partners_clean_sorted, logo_pool)
+        _renmad_logo = _renmad_logo_img()
 
-            cols = st.columns(min(4, len(files)))
-            for i, (fname, fbytes) in enumerate(files.items()):
-                col = cols[i % len(cols)]
-                col.image(fbytes, use_container_width=True, caption=fname)
-                col.download_button(
-                    "Download", data=fbytes,
-                    file_name=f"{_slugify(company)}_{fname}",
-                    mime="image/png", use_container_width=True,
-                    key=f"dl_{company}_{fname}",
+        _date_str_es = _format_event_date(
+            start_date.isoformat(), end_date.isoformat(), "es").upper()
+        _date_str_en = _format_event_date(
+            start_date.isoformat(), end_date.isoformat(), "en").upper()
+
+        _event_es = {"title": event_name, "date_str": _date_str_es,
+                     "location": location.upper() if location else ""}
+        _event_en = {"title": event_name, "date_str": _date_str_en,
+                     "location": location.upper() if location else ""}
+
+        _theme = THEMES[theme_key]
+
+        with st.spinner("Generating 8 Info graphics (ES + EN)…"):
+            try:
+                _ingos_es = _gen_all_ingos(
+                    event=_event_es, stats=ingo_stats_current, tiers=_tiers,
+                    secondary=_secondary, theme=_theme, language="es",
+                    renmad_logo=_renmad_logo,
+                )
+                _ingos_en = _gen_all_ingos(
+                    event=_event_en, stats=ingo_stats_current, tiers=_tiers,
+                    secondary=_secondary, theme=_theme, language="en",
+                    renmad_logo=_renmad_logo,
+                )
+                st.session_state["_last_ingos_es"]  = _ingos_es
+                st.session_state["_last_ingos_en"]  = _ingos_en
+                st.session_state["_last_ingo_name"] = _slugify(event_name)
+            except Exception as _ingo_err:
+                st.error(f"Info graphic generation failed: {_ingo_err}")
+                import traceback
+                st.code(traceback.format_exc())
+
+    # ── Preview & download ────────────────────────────────────────────────────
+    _ingos_es = st.session_state.get("_last_ingos_es")
+    _ingos_en = st.session_state.get("_last_ingos_en")
+
+    if _ingos_es or _ingos_en:
+        st.divider()
+        _ingo_slug = st.session_state.get("_last_ingo_name", "event")
+
+        _zia, _zib = st.columns(2)
+
+        _ingo_zip_buf = io.BytesIO()
+        with zipfile.ZipFile(_ingo_zip_buf, "w", zipfile.ZIP_DEFLATED) as _zf:
+            for _v, _b in (_ingos_es or {}).items():
+                _suffix = f"_{_v}" if _v else ""
+                _zf.writestr(f"{_ingo_slug}_ingo{_suffix}_es.png", _b)
+            for _v, _b in (_ingos_en or {}).items():
+                _suffix = f"_{_v}" if _v else ""
+                _zf.writestr(f"{_ingo_slug}_ingo{_suffix}_en.png", _b)
+        _zia.download_button(
+            "📦 Download all 8 (ZIP)",
+            data=_ingo_zip_buf.getvalue(),
+            file_name=f"{_ingo_slug}_ingos.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="dl_ingo_zip",
+        )
+
+        _save_ingo_btn = _zib.button(
+            "💾 Save to event folder",
+            use_container_width=True,
+            disabled=not active_event_id,
+            key="save_ingos_btn",
+            help="Saves all 8 PNGs to event_data/{event_id}/ingos/",
+        )
+        if _save_ingo_btn and active_event_id:
+            _ingo_dir = os.path.join(_event_dir(active_event_id), "ingos")
+            os.makedirs(_ingo_dir, exist_ok=True)
+            _saved_count = 0
+            for _v, _b in (_ingos_es or {}).items():
+                _suffix = f"_{_v}" if _v else ""
+                with open(os.path.join(_ingo_dir, f"ingo{_suffix}_es.png"), "wb") as _fh:
+                    _fh.write(_b)
+                _saved_count += 1
+            for _v, _b in (_ingos_en or {}).items():
+                _suffix = f"_{_v}" if _v else ""
+                with open(os.path.join(_ingo_dir, f"ingo{_suffix}_en.png"), "wb") as _fh:
+                    _fh.write(_b)
+                _saved_count += 1
+            st.success(f"💾 Saved {_saved_count} Info graphics to `{_ingo_dir}`")
+
+        if _ingos_es:
+            st.markdown("**🇪🇸 Español**")
+            _es_cols = st.columns(4)
+            for _col, _v in zip(_es_cols, _INGO_VARIANTS):
+                if _v not in _ingos_es:
+                    continue
+                _suffix = f"_{_v}" if _v else ""
+                _col.image(_ingos_es[_v], use_container_width=True,
+                           caption=_VARIANT_CAPTIONS.get(_v, _v))
+                _col.download_button(
+                    "⬇️ ES",
+                    data=_ingos_es[_v],
+                    file_name=f"{_ingo_slug}_ingo{_suffix}_es.png",
+                    mime="image/png",
+                    use_container_width=True,
+                    key=f"dl_ingo_es_{_v or 'event'}",
+                )
+
+        if _ingos_en:
+            st.markdown("**🇬🇧 English**")
+            _en_cols = st.columns(4)
+            for _col, _v in zip(_en_cols, _INGO_VARIANTS):
+                if _v not in _ingos_en:
+                    continue
+                _suffix = f"_{_v}" if _v else ""
+                _col.image(_ingos_en[_v], use_container_width=True,
+                           caption=_VARIANT_CAPTIONS.get(_v, _v))
+                _col.download_button(
+                    "⬇️ EN",
+                    data=_ingos_en[_v],
+                    file_name=f"{_ingo_slug}_ingo{_suffix}_en.png",
+                    mime="image/png",
+                    use_container_width=True,
+                    key=f"dl_ingo_en_{_v or 'event'}",
                 )
 
 
-# ── Ingo (event infographic 1200×630) ────────────────────────────────────────
-st.divider()
-st.subheader("📸 Event Ingo — 1 200 × 630 px")
-st.caption(
-    "Infografía del evento con fondo blanco y círculo vacío para la foto del usuario. "
-    "Se generan los 4 formatos a la vez: evento, ponente, asistente y sponsor."
-)
+# ──────────────────────────────────────────────────────────────────────────────
+# MODE: Logo wall (1920px wide)
+# ──────────────────────────────────────────────────────────────────────────────
+elif mode == MODE_WALL:
+    st.subheader("🖼️ Logo Wall — 1 920 px wide")
 
-_eid_i = active_event_id or "new"
+    from generators.t_logowall import generate_all_variants as _gen_logowall
 
-# Defaults from saved event (or blank if new)
-_saved_ingo = (loaded_event or {}).get("ingo_stats", [
-    {"num": "", "label": "ATTENDEES"},
-    {"num": "", "label": "SPEAKERS"},
-    {"num": "", "label": "NETWORKING HOURS"},
-])
-
-# ── Stats row (3 editable metrics) ───────────────────────────────────────────
-st.markdown("**Event stats** — shown as icons + numbers in the Ingo:")
-is1, is2, is3 = st.columns(3)
-
-with is1:
-    st.caption("👥 Attendees")
-    ingo_num_0 = st.text_input(
-        "Attendees number", key=f"_ingo_num_0_{_eid_i}",
-        value=_saved_ingo[0].get("num", "") if _saved_ingo else "",
-        placeholder="e.g. 300+", label_visibility="collapsed",
-    )
-    ingo_lab_0 = st.text_input(
-        "Attendees label", key=f"_ingo_lab_0_{_eid_i}",
-        value=_saved_ingo[0].get("label", "ATTENDEES") if _saved_ingo else "ATTENDEES",
-        label_visibility="collapsed",
+    _lw_spk_files = st.file_uploader(
+        "Speaker / attendee logos (optional — shown in 'Confirmed Speakers' section)",
+        accept_multiple_files=True,
+        type=["png", "jpg", "jpeg"],
+        key=f"lw_spk_upload_{_eid_i}",
+        label_visibility="visible",
     )
 
-with is2:
-    st.caption("🎤 Speakers")
-    ingo_num_1 = st.text_input(
-        "Speakers number", key=f"_ingo_num_1_{_eid_i}",
-        value=_saved_ingo[1].get("num", "") if len(_saved_ingo) > 1 else "",
-        placeholder="e.g. 40", label_visibility="collapsed",
-    )
-    ingo_lab_1 = st.text_input(
-        "Speakers label", key=f"_ingo_lab_1_{_eid_i}",
-        value=_saved_ingo[1].get("label", "SPEAKERS") if len(_saved_ingo) > 1 else "SPEAKERS",
-        label_visibility="collapsed",
-    )
-
-with is3:
-    st.caption("🤝 Networking")
-    ingo_num_2 = st.text_input(
-        "Networking number", key=f"_ingo_num_2_{_eid_i}",
-        value=_saved_ingo[2].get("num", "") if len(_saved_ingo) > 2 else "",
-        placeholder="e.g. 8", label_visibility="collapsed",
-    )
-    ingo_lab_2 = st.text_input(
-        "Networking label", key=f"_ingo_lab_2_{_eid_i}",
-        value=_saved_ingo[2].get("label", "NETWORKING HOURS") if len(_saved_ingo) > 2 else "NETWORKING HOURS",
-        label_visibility="collapsed",
-    )
-
-ingo_stats_current = [
-    {"num": ingo_num_0, "label": ingo_lab_0},
-    {"num": ingo_num_1, "label": ingo_lab_1},
-    {"num": ingo_num_2, "label": ingo_lab_2},
-]
-
-
-# ── Build tier / secondary lists from the partner table ───────────────────────
-def _build_ingo_tiers(partners_sorted_list, pool_bytes):
-    """Group partners into tiers (sponsors) and secondary (partners) for t_ingo."""
-    tier_map      = {}
-    secondary_map = {}
-
-    for p in partners_sorted_list:
-        role  = (p.get("Role") or "").strip()
-        fname = p.get("Logo file", "")
-        logo_img = None
-        if fname and fname != NO_LOGO and fname in pool_bytes:
+    _lw_speaker_imgs = []
+    if _lw_spk_files:
+        for _sf in _lw_spk_files:
             try:
-                logo_img = Image.open(io.BytesIO(pool_bytes[fname])).convert("RGBA")
+                _lw_speaker_imgs.append(Image.open(io.BytesIO(_sf.getvalue())).convert("RGBA"))
             except Exception:
-                logo_img = None
+                st.warning(f"Could not open {_sf.name} — skipped.")
+    _lw_speakers = [{"name": "speakers", "logos": _lw_speaker_imgs}] if _lw_speaker_imgs else []
+    if _lw_speaker_imgs:
+        st.caption(f"{len(_lw_speaker_imgs)} speaker logo(s) loaded")
 
-        gidx, _ = role_rank_key(role)
-        display  = role_to_banner_text(role)
+    lw1, lw2 = st.columns([1, 3])
+    _gen_lw_btn = lw1.button(
+        "🖼️ Generate Logo Wall", type="primary",
+        use_container_width=True,
+        disabled=not event_name,
+    )
+    lw2.caption("Genera el logo wall ES + EN en 1 920 px — sponsors del evento ordenados por tier.")
 
-        if gidx == 0:   # named sponsor tier
-            tier_map.setdefault(display, [])
-            if logo_img:
-                tier_map[display].append(logo_img)
-        else:            # partner / host / media / other → secondary
-            secondary_map.setdefault(display, [])
-            if logo_img:
-                secondary_map[display].append(logo_img)
+    if _gen_lw_btn:
+        _lw_tiers, _lw_secondary = _build_ingo_tiers(partners_clean_sorted, logo_pool)
+        _renmad_lw = _renmad_logo_img()
+        _lw_theme = THEMES[theme_key]
+        _lw_event = {"title": event_name, "date_str": "", "location": location or ""}
 
-    def _tier_sort(name):
-        lower = name.lower()
-        for i, t in enumerate(TIER_ORDER):
-            if t in lower:
-                return i
-        return 99
-
-    tiers     = [{"name": n, "logos": logos}
-                 for n, logos in sorted(tier_map.items(), key=lambda x: _tier_sort(x[0]))]
-    secondary = [{"name": n, "logos": logos} for n, logos in secondary_map.items()]
-    return tiers, secondary
-
-
-# ── Generate all Ingo variants button ────────────────────────────────────────
-from generators.t_ingo import generate_all_variants as _gen_all_ingos, ALL_VARIANTS as _INGO_VARIANTS
-from generators.t_logowall import generate_all_variants as _gen_logowall
-
-_VARIANT_CAPTIONS = {
-    "":          "Event",
-    "ponente":   "Ponente / Speaker",
-    "asistente": "Asistente / Attendee",
-    "patro":     "Sponsor Oficial",
-}
-
-ig1, ig2 = st.columns([1, 3])
-gen_ingo_btn = ig1.button(
-    "📸 Generate all Ingos", type="primary",
-    use_container_width=True,
-    disabled=not event_name,
-)
-ig2.caption(
-    "Genera los 8 formatos a la vez — 4 en español + 4 en inglés "
-    "(Evento · Ponente · Asistente · Sponsor). "
-    "El círculo queda vacío para que cada persona añada su foto."
-)
-
-if gen_ingo_btn:
-    _tiers, _secondary = _build_ingo_tiers(partners_clean_sorted, logo_pool)
-
-    # RENMAD logo
-    _logo_dir    = os.path.normpath(os.path.join(_HERE, "..", "assets", "logos"))
-    _renmad_logo = None
-    for _rname in ("logo_renmad_events.png", "renmad_logo.png", "logo_renmad.png"):
-        _rpath = os.path.join(_logo_dir, _rname)
-        if os.path.exists(_rpath):
+        with st.spinner("Generating logo wall…"):
             try:
-                _renmad_logo = Image.open(_rpath).convert("RGBA")
-            except Exception:
-                pass
-            break
+                _lw_result = _gen_logowall(
+                    event=_lw_event,
+                    tiers=_lw_tiers,
+                    secondary=_lw_secondary,
+                    speakers=_lw_speakers,
+                    theme=_lw_theme,
+                    language=language,
+                    renmad_logo=_renmad_lw,
+                )
+                st.session_state["_last_logowall"]      = _lw_result
+                st.session_state["_last_logowall_name"] = _slugify(event_name)
+            except Exception as _lw_err:
+                st.error(f"Logo wall generation failed: {_lw_err}")
+                import traceback
+                st.code(traceback.format_exc())
 
-    _date_str_es = _format_event_date(
-        start_date.isoformat(), end_date.isoformat(), "es"
-    ).upper()
-    _date_str_en = _format_event_date(
-        start_date.isoformat(), end_date.isoformat(), "en"
-    ).upper()
+    # ── Preview & download ────────────────────────────────────────────────────
+    _lw_result = st.session_state.get("_last_logowall")
+    if _lw_result:
+        _lw_slug = st.session_state.get("_last_logowall_name", "event")
+        st.divider()
 
-    _event_es = {
-        "title":    event_name,
-        "date_str": _date_str_es,
-        "location": location.upper() if location else "",
-    }
-    _event_en = {
-        "title":    event_name,
-        "date_str": _date_str_en,
-        "location": location.upper() if location else "",
-    }
+        _lw_col_es, _lw_col_en = st.columns(2)
+        with _lw_col_es:
+            st.markdown("**🇪🇸 Español**")
+            if "es" in _lw_result:
+                st.image(_lw_result["es"], use_container_width=True)
+                st.download_button(
+                    "⬇️ Download ES",
+                    data=_lw_result["es"],
+                    file_name=f"{_lw_slug}_logowall_es.png",
+                    mime="image/png",
+                    use_container_width=True,
+                    key="dl_lw_es",
+                )
+        with _lw_col_en:
+            st.markdown("**🇬🇧 English**")
+            if "en" in _lw_result:
+                st.image(_lw_result["en"], use_container_width=True)
+                st.download_button(
+                    "⬇️ Download EN",
+                    data=_lw_result["en"],
+                    file_name=f"{_lw_slug}_logowall_en.png",
+                    mime="image/png",
+                    use_container_width=True,
+                    key="dl_lw_en",
+                )
 
-    from config import THEMES as _THEMES
-    _theme = _THEMES[theme_key]
+        _lw_zip = io.BytesIO()
+        with zipfile.ZipFile(_lw_zip, "w", zipfile.ZIP_DEFLATED) as _zf:
+            for _lang, _data in _lw_result.items():
+                _zf.writestr(f"{_lw_slug}_logowall_{_lang}.png", _data)
+        st.download_button(
+            "📦 Download both (ZIP)",
+            data=_lw_zip.getvalue(),
+            file_name=f"{_lw_slug}_logowall.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="dl_lw_zip",
+        )
 
-    with st.spinner("Generating 8 Ingo variants (ES + EN)…"):
-        try:
-            _ingos_es = _gen_all_ingos(
-                event=_event_es, stats=ingo_stats_current, tiers=_tiers,
-                secondary=_secondary, theme=_theme, language="es",
-                renmad_logo=_renmad_logo,
-            )
-            _ingos_en = _gen_all_ingos(
-                event=_event_en, stats=ingo_stats_current, tiers=_tiers,
-                secondary=_secondary, theme=_theme, language="en",
-                renmad_logo=_renmad_logo,
-            )
-            st.session_state["_last_ingos_es"]  = _ingos_es
-            st.session_state["_last_ingos_en"]  = _ingos_en
-            st.session_state["_last_ingo_name"] = _slugify(event_name)
-        except Exception as _ingo_err:
-            st.error(f"Ingo generation failed: {_ingo_err}")
-            import traceback
-            st.code(traceback.format_exc())
-
-# ── Ingo preview & download ───────────────────────────────────────────────────
-_ingos_es = st.session_state.get("_last_ingos_es")
-_ingos_en = st.session_state.get("_last_ingos_en")
-
-if _ingos_es or _ingos_en:
-    _ingo_slug = st.session_state.get("_last_ingo_name", "event")
-
-    # ── Action bar: ZIP download + Save ──────────────────────────────────────
-    _zia, _zib = st.columns(2)
-
-    # ZIP of all 8
-    _ingo_zip_buf = io.BytesIO()
-    with zipfile.ZipFile(_ingo_zip_buf, "w", zipfile.ZIP_DEFLATED) as _zf:
-        for _v, _b in (_ingos_es or {}).items():
-            _suffix = f"_{_v}" if _v else ""
-            _zf.writestr(f"{_ingo_slug}_ingo{_suffix}_es.png", _b)
-        for _v, _b in (_ingos_en or {}).items():
-            _suffix = f"_{_v}" if _v else ""
-            _zf.writestr(f"{_ingo_slug}_ingo{_suffix}_en.png", _b)
-    _zia.download_button(
-        "📦 Download all 8 Ingos (ZIP)",
-        data=_ingo_zip_buf.getvalue(),
-        file_name=f"{_ingo_slug}_ingos.zip",
-        mime="application/zip",
-        use_container_width=True,
-        key="dl_ingo_zip",
-    )
-
-    # Save to event folder
-    _save_ingo_btn = _zib.button(
-        "💾 Save Ingos to event folder",
-        use_container_width=True,
-        disabled=not active_event_id,
-        key="save_ingos_btn",
-        help="Saves all 8 PNGs to event_data/{event_id}/ingos/",
-    )
-    if _save_ingo_btn and active_event_id:
-        _ingo_dir = os.path.join(_event_dir(active_event_id), "ingos")
-        os.makedirs(_ingo_dir, exist_ok=True)
-        _saved_count = 0
-        for _v, _b in (_ingos_es or {}).items():
-            _suffix = f"_{_v}" if _v else ""
-            _fpath = os.path.join(_ingo_dir, f"ingo{_suffix}_es.png")
-            with open(_fpath, "wb") as _fh:
-                _fh.write(_b)
-            _saved_count += 1
-        for _v, _b in (_ingos_en or {}).items():
-            _suffix = f"_{_v}" if _v else ""
-            _fpath = os.path.join(_ingo_dir, f"ingo{_suffix}_en.png")
-            with open(_fpath, "wb") as _fh:
-                _fh.write(_b)
-            _saved_count += 1
-        st.success(f"💾 Saved {_saved_count} Ingos to `{_ingo_dir}`")
-
-    # ── ES row ────────────────────────────────────────────────────────────────
-    if _ingos_es:
-        st.markdown("**🇪🇸 Español**")
-        _es_cols = st.columns(4)
-        for _col, _v in zip(_es_cols, _INGO_VARIANTS):
-            if _v not in _ingos_es:
-                continue
-            _suffix = f"_{_v}" if _v else ""
-            _col.image(_ingos_es[_v], use_container_width=True,
-                       caption=_VARIANT_CAPTIONS.get(_v, _v))
-            _col.download_button(
-                f"⬇️ ES",
-                data=_ingos_es[_v],
-                file_name=f"{_ingo_slug}_ingo{_suffix}_es.png",
-                mime="image/png",
-                use_container_width=True,
-                key=f"dl_ingo_es_{_v or 'event'}",
-            )
-
-    # ── EN row ────────────────────────────────────────────────────────────────
-    if _ingos_en:
-        st.markdown("**🇬🇧 English**")
-        _en_cols = st.columns(4)
-        for _col, _v in zip(_en_cols, _INGO_VARIANTS):
-            if _v not in _ingos_en:
-                continue
-            _suffix = f"_{_v}" if _v else ""
-            _col.image(_ingos_en[_v], use_container_width=True,
-                       caption=_VARIANT_CAPTIONS.get(_v, _v))
-            _col.download_button(
-                f"⬇️ EN",
-                data=_ingos_en[_v],
-                file_name=f"{_ingo_slug}_ingo{_suffix}_en.png",
-                mime="image/png",
-                use_container_width=True,
-                key=f"dl_ingo_en_{_v or 'event'}",
-            )
-
-
-# ── Logo Wall ─────────────────────────────────────────────────────────────────
-st.divider()
-st.subheader("🖼️ Logo Wall — 1 920 px wide")
-
-_lw_spk_files = st.file_uploader(
-    "Speaker / attendee logos (optional — shown in 'Confirmed Speakers' section)",
-    accept_multiple_files=True,
-    type=["png", "jpg", "jpeg"],
-    key=f"lw_spk_upload_{_eid_i}",
-    label_visibility="visible",
-)
-
-_lw_speaker_imgs = []
-if _lw_spk_files:
-    for _sf in _lw_spk_files:
-        try:
-            _lw_speaker_imgs.append(Image.open(io.BytesIO(_sf.getvalue())).convert("RGBA"))
-        except Exception:
-            st.warning(f"Could not open {_sf.name} — skipped.")
-_lw_speakers = [{"name": "speakers", "logos": _lw_speaker_imgs}] if _lw_speaker_imgs else []
-if _lw_speaker_imgs:
-    st.caption(f"{len(_lw_speaker_imgs)} speaker logo(s) loaded")
-
-lw1, lw2 = st.columns([1, 3])
-_gen_lw_btn = lw1.button(
-    "🖼️ Generate Logo Wall", type="primary",
-    use_container_width=True,
-    disabled=not event_name,
-)
-lw2.caption("Genera el logo wall ES + EN en 1 920 px — sponsors del evento ordenados por tier.")
-
-if _gen_lw_btn:
-    _lw_tiers, _lw_secondary = _build_ingo_tiers(partners_clean_sorted, logo_pool)
-
-    _logo_dir2   = os.path.normpath(os.path.join(_HERE, "..", "assets", "logos"))
-    _renmad_lw   = None
-    for _rname in ("logo_renmad_events.png", "renmad_logo.png", "logo_renmad.png"):
-        _rpath = os.path.join(_logo_dir2, _rname)
-        if os.path.exists(_rpath):
-            try:
-                _renmad_lw = Image.open(_rpath).convert("RGBA")
-            except Exception:
-                pass
-            break
-
-    _lw_theme = THEMES[theme_key]
-    _lw_event = {"title": event_name, "date_str": "", "location": location or ""}
-
-    with st.spinner("Generating logo wall…"):
-        try:
-            _lw_result = _gen_logowall(
-                event=_lw_event,
-                tiers=_lw_tiers,
-                secondary=_lw_secondary,
-                speakers=_lw_speakers,
-                theme=_lw_theme,
-                language=language,
-                renmad_logo=_renmad_lw,
-            )
-            st.session_state["_last_logowall"]      = _lw_result
-            st.session_state["_last_logowall_name"] = _slugify(event_name)
-        except Exception as _lw_err:
-            st.error(f"Logo wall generation failed: {_lw_err}")
-            import traceback
-            st.code(traceback.format_exc())
-
-# ── Logo wall preview & download ──────────────────────────────────────────────
-_lw_result = st.session_state.get("_last_logowall")
-if _lw_result:
-    _lw_slug = st.session_state.get("_last_logowall_name", "event")
-    st.divider()
-
-    _lw_col_es, _lw_col_en = st.columns(2)
-    with _lw_col_es:
-        st.markdown("**🇪🇸 Español**")
-        if "es" in _lw_result:
-            st.image(_lw_result["es"], use_container_width=True)
-            st.download_button(
-                "⬇️ Download ES",
-                data=_lw_result["es"],
-                file_name=f"{_lw_slug}_logowall_es.png",
-                mime="image/png",
-                use_container_width=True,
-                key="dl_lw_es",
-            )
-    with _lw_col_en:
-        st.markdown("**🇬🇧 English**")
-        if "en" in _lw_result:
-            st.image(_lw_result["en"], use_container_width=True)
-            st.download_button(
-                "⬇️ Download EN",
-                data=_lw_result["en"],
-                file_name=f"{_lw_slug}_logowall_en.png",
-                mime="image/png",
-                use_container_width=True,
-                key="dl_lw_en",
-            )
-
-    # ZIP
-    _lw_zip = io.BytesIO()
-    with zipfile.ZipFile(_lw_zip, "w", zipfile.ZIP_DEFLATED) as _zf:
-        for _lang, _data in _lw_result.items():
-            _zf.writestr(f"{_lw_slug}_logowall_{_lang}.png", _data)
-    st.download_button(
-        "📦 Download both (ZIP)",
-        data=_lw_zip.getvalue(),
-        file_name=f"{_lw_slug}_logowall.zip",
-        mime="application/zip",
-        use_container_width=True,
-        key="dl_lw_zip",
-    )
-
-    # Save to event folder
-    _lw_save_btn = st.button(
-        "💾 Save Logo Wall to event folder",
-        disabled=not active_event_id,
-        key="save_lw_btn",
-        help=f"Saves PNGs to event_data/{active_event_id}/logowall/",
-    )
-    if _lw_save_btn and active_event_id:
-        _lw_dir = os.path.join(_event_dir(active_event_id), "logowall")
-        os.makedirs(_lw_dir, exist_ok=True)
-        _lw_saved = 0
-        for _lang, _data in _lw_result.items():
-            with open(os.path.join(_lw_dir, f"logowall_{_lang}.png"), "wb") as _fh:
-                _fh.write(_data)
-            _lw_saved += 1
-        st.success(f"💾 Saved {_lw_saved} logo wall(s) to `{_lw_dir}`")
+        _lw_save_btn = st.button(
+            "💾 Save Logo Wall to event folder",
+            disabled=not active_event_id,
+            key="save_lw_btn",
+            help=f"Saves PNGs to event_data/{active_event_id}/logowall/",
+        )
+        if _lw_save_btn and active_event_id:
+            _lw_dir = os.path.join(_event_dir(active_event_id), "logowall")
+            os.makedirs(_lw_dir, exist_ok=True)
+            _lw_saved = 0
+            for _lang, _data in _lw_result.items():
+                with open(os.path.join(_lw_dir, f"logowall_{_lang}.png"), "wb") as _fh:
+                    _fh.write(_data)
+                _lw_saved += 1
+            st.success(f"💾 Saved {_lw_saved} logo wall(s) to `{_lw_dir}`")
