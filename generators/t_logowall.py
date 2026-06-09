@@ -1,21 +1,20 @@
-"""T_Logowall — Event logo wall / footer  1920 px wide, dynamic height
+"""T_Logowall — Event logo wall  1920 px wide, dynamic height
 
-Layout
-──────
+Layout  (stacked rows, biggest at the top)
+──────────────────────────────────────────
   WHITE background throughout.
 
-  TOP section:
-    · 5 px theme-colour accent line across full width
-    · Columns (left → right): RENMAD | secondary groups | main tier groups
-        – Each column: coloured header band (theme for tiers, grey for secondary)
-          with bold white label text
-        – Logos centred below the header, scaled by tier importance
-        – Light grey vertical divider between columns
-    · RENMAD column (optional): far left, no header, logo vertically centred
-
-  BOTTOM section (optional):
-    · Full-width theme-colour "CONFIRMED SPEAKERS" bar
-    · Speaker logos on white, centred
+    · 8 px theme-colour accent line across the top
+    · RENMAD logo, centred (optional)
+    · One ROW PER SPONSOR TIER, most important first:
+        – small centred tier label (theme colour) e.g. "DIAMOND SPONSOR"
+        – the tier's logos centred below it, scaled to that tier's height
+      Each tier is laid out across the FULL width, so its logos always reach
+      the tier's target height — the more important the tier, the bigger.
+      Rough size hierarchy: each tier is ~half the height (≈4× the area) of the
+      tier below it, so Diamond towers over Gold towers over a plain Sponsor.
+    · Secondary groups (Media Partner, Host, …) — small, after the sponsors.
+    · Speaker logos — smallest, under a full-width "CONFIRMED SPEAKERS" bar.
 
 Public API:
   generate(event, tiers, secondary, speakers, theme, language, renmad_logo) -> bytes
@@ -23,47 +22,48 @@ Public API:
 """
 
 import io
-import math
 from PIL import Image, ImageDraw
 
 # ── Canvas ────────────────────────────────────────────────────────────────────
 W = 1920
 
 # ── Layout constants ──────────────────────────────────────────────────────────
-H_ACCENT  = 8     # top theme-colour accent line height
-H_HEADER  = 66    # coloured label band height
-PAD_X     = 40    # outer left / right margin
-COL_PAD   = 24    # horizontal padding inside each column (total L+R)
-PAD_Y     = 32    # vertical padding above/below logos in a column
-GAP_X     = 24    # horizontal gap between logos in a row
-ROW_GAP   = 18    # vertical gap between wrapped logo rows
+H_ACCENT          = 8     # top theme-colour accent line height
+PAD_X             = 60    # outer left / right margin
+TOP_PAD           = 36    # space under the accent line
+BOTTOM_PAD        = 48    # space at the very bottom
+RENMAD_H          = 76    # RENMAD logo height
+GAP_AFTER_RENMAD  = 44    # space below the RENMAD logo
+LABEL_GAP         = 14    # space between a tier label and its logos
+GROUP_GAP         = 50    # vertical space between tier groups
+GAP_X             = 46    # horizontal gap between logos in a row
+ROW_GAP           = 26    # vertical gap between wrapped logo rows
+
+# ── Size hierarchy ──────────────────────────────────────────────────────────--
+# Heights are assigned to the tiers that are ACTUALLY PRESENT, in importance
+# order — not by absolute rank. So the top present tier is always the biggest
+# (Diamond if present, otherwise the highest tier there is) and each subsequent
+# tier steps down hard.
+H_FIRST_TIER = 260    # logo height of the most important present tier
+TIER_RATIO   = 0.5    # each next tier ≈ half the height (≈ 1/4 the area)
+H_TIER_MIN   = 64     # floor so low tiers stay legible
+H_SEC        = 54     # secondary groups (Media Partner, Host, …) — small
+H_SPK        = 50     # speaker logos — smallest
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 BG          = (255, 255, 255)   # white canvas
-DIVIDER     = (210, 210, 218)   # light grey column dividers
-SEC_HDR     = (105, 105, 120)   # grey header for secondary columns
 TEXT_WHITE  = (255, 255, 255)
+SEC_LABEL   = (105, 105, 120)   # grey label for secondary groups
 
 # ── Tier system ───────────────────────────────────────────────────────────────
 TIER_ORDER = ["diamond", "platinum", "global", "gold", "silver", "bronze", "standard", "sponsor"]
 
-# Logo target height per tier rank (0 = diamond/biggest → 7 = sponsor/smallest)
-_TIER_LOGO_H = [190, 165, 145, 125, 105, 88, 75, 65]
-
-# Column width weight per tier rank (higher tier → wider column)
-_TIER_WEIGHT = [2.0, 1.8, 1.6, 1.4, 1.2, 1.0, 0.9, 0.85]
-
-# Secondary groups (Media Partner, Host, Co-Host, …)
-SEC_LOGO_H = 72
-SEC_WEIGHT = 0.75
-
 # ── Speaker section ───────────────────────────────────────────────────────────
-SPK_HDR_H   = 90
-SPK_H       = 72
-SPK_MAX_W   = 160
-SPK_GAP     = 32
-SPK_ROW_GAP = 20
-SPK_PAD_Y   = 24
+SPK_HDR_H   = 72
+SPK_MAX_W   = 150
+SPK_GAP     = 36
+SPK_ROW_GAP = 22
+SPK_PAD_Y   = 28
 
 _SPK_LABEL = {
     "es": "PONENTES CONFIRMADOS",
@@ -71,6 +71,10 @@ _SPK_LABEL = {
     "it": "RELATORI CONFERMATI",
     "pl": "POTWIERDZENI PRELEGENCI",
 }
+
+# ── Scratch surface for measuring text ──────────────────────────────────────--
+_SCRATCH   = Image.new("RGB", (8, 8))
+_SCRATCH_D = ImageDraw.Draw(_SCRATCH)
 
 
 # ── Font helper ───────────────────────────────────────────────────────────────
@@ -84,6 +88,11 @@ def _f(name, size):
     )
 
 
+def _text_size(text: str, font) -> tuple[int, int]:
+    b = _SCRATCH_D.textbbox((0, 0), text, font=font)
+    return b[2] - b[0], b[3] - b[1]
+
+
 # ── Tier helpers ──────────────────────────────────────────────────────────────
 def _tier_rank(name: str) -> int:
     """0 = diamond (highest / largest), 7 = sponsor (smallest)."""
@@ -94,10 +103,13 @@ def _tier_rank(name: str) -> int:
     return 7
 
 
-def _logo_h_for_col(col: dict) -> int:
-    if col["kind"] == "secondary":
-        return SEC_LOGO_H
-    return _TIER_LOGO_H[min(col["rank"], len(_TIER_LOGO_H) - 1)]
+def _tier_heights(n: int) -> list[int]:
+    """Staircase of logo heights for the n present tiers (biggest first)."""
+    out, h = [], float(H_FIRST_TIER)
+    for _ in range(n):
+        out.append(max(H_TIER_MIN, int(round(h))))
+        h = h * TIER_RATIO
+    return out
 
 
 # ── Logo helpers ──────────────────────────────────────────────────────────────
@@ -123,12 +135,14 @@ def _paste(canvas: Image.Image, logo: Image.Image, x: int, y: int) -> None:
     canvas.paste(logo, (x, y), mask=logo)
 
 
-# ── Column layout helpers ─────────────────────────────────────────────────────
-def _fit_logos_in_column(logos: list, target_h: int, max_w: int, inner_w: int) -> list:
+# ── Row layout ──────────────────────────────────────────────────────────────--
+def _layout_rows(logos: list, target_h: int, usable_w: int) -> list:
+    """Scale every logo to target_h (capped to the full width) and wrap into
+    centred rows that each fit inside usable_w. Returns a list of rows."""
     scaled = []
     for lg in logos:
         try:
-            s = _scale(lg, target_h, max_w)
+            s = _scale(lg, target_h, usable_w)
             if s:
                 scaled.append(s)
         except Exception:
@@ -136,217 +150,68 @@ def _fit_logos_in_column(logos: list, target_h: int, max_w: int, inner_w: int) -
     if not scaled:
         return []
 
-    rows, cur_row, cur_w = [], [], 0
+    rows, cur, cur_w = [], [], 0
     for s in scaled:
-        needed = s.width + (GAP_X if cur_row else 0)
-        if cur_row and cur_w + needed > inner_w:
-            rows.append(cur_row)
-            cur_row, cur_w = [s], s.width
+        need = s.width + (GAP_X if cur else 0)
+        if cur and cur_w + need > usable_w:
+            rows.append(cur)
+            cur, cur_w = [s], s.width
         else:
-            cur_row.append(s)
-            cur_w += needed
-    if cur_row:
-        rows.append(cur_row)
+            cur.append(s)
+            cur_w += need
+    if cur:
+        rows.append(cur)
     return rows
 
 
-def _column_logos_height(rows: list) -> int:
+def _rows_block_h(rows: list) -> int:
     if not rows:
         return 0
-    total = 0
-    for i, row in enumerate(rows):
-        total += max((s.height for s in row), default=0)
-        if i < len(rows) - 1:
-            total += ROW_GAP
+    total = sum(max(s.height for s in row) for row in rows)
+    total += ROW_GAP * (len(rows) - 1)
     return total
 
 
-# ── Column width computation ───────────────────────────────────────────────────
-def _compute_col_widths(
-    renmad_logo,
-    secondary: list,
-    tiers: list,
-    renmad_logo_w: int,
-) -> tuple[int, list[dict]]:
-    active_sec   = [g for g in (secondary or []) if g.get("logos")]
-    active_tiers = [t for t in (tiers or []) if t.get("logos")]
-
-    renmad_col_w = (renmad_logo_w + COL_PAD) if renmad_logo_w > 0 else 0
-    avail_w      = W - PAD_X * 2 - renmad_col_w
-
-    columns, weights = [], []
-
-    for grp in active_sec:
-        columns.append({
-            "kind":  "secondary",
-            "rank":  99,
-            "name":  grp.get("name", ""),
-            "logos": grp["logos"],
-        })
-        weights.append(SEC_WEIGHT)
-
-    for tier in active_tiers:
-        rank = _tier_rank(tier.get("name", ""))
-        columns.append({
-            "kind":  "tier",
-            "rank":  rank,
-            "name":  tier.get("name", ""),
-            "logos": tier["logos"],
-        })
-        weights.append(_TIER_WEIGHT[min(rank, len(_TIER_WEIGHT) - 1)])
-
-    if not columns:
-        return renmad_col_w, []
-
-    total_w   = sum(weights)
-    col_widths = [max(80, int(avail_w * w / total_w)) for w in weights]
-    # Give rounding remainder to the last column
-    col_widths[-1] += avail_w - sum(col_widths)
-
-    for col, cw in zip(columns, col_widths):
-        col["col_w"] = cw
-
-    return renmad_col_w, columns
-
-
-# ── Strip height computation ───────────────────────────────────────────────────
-def _compute_strip_h(columns: list) -> int:
-    """Compute the height of the sponsor strip from the tallest column."""
-    max_logos_h = 0
-    for col in columns:
-        logo_h  = _logo_h_for_col(col)
-        inner_w = max(10, col["col_w"] - COL_PAD)
-        max_w   = min(int(logo_h * 3.5), inner_w - 4)
-        rows    = _fit_logos_in_column(col["logos"], logo_h, max_w, inner_w)
-        max_logos_h = max(max_logos_h, _column_logos_height(rows))
-
-    return H_ACCENT + H_HEADER + PAD_Y + max(max_logos_h, 40) + PAD_Y
-
-
-# ── Renderer: sponsor strip ───────────────────────────────────────────────────
-def _draw_strip(
-    canvas: Image.Image,
-    draw: ImageDraw.ImageDraw,
-    theme_rgb: tuple,
-    columns: list,
-    renmad_col_w: int,
-    renmad_scaled: Image.Image | None,
-    strip_h: int,
-) -> None:
-    # Top accent line + full-width header band in one pass
-    draw.rectangle([0, 0, W, H_ACCENT], fill=theme_rgb)
-    draw.rectangle([0, H_ACCENT, W, H_ACCENT + H_HEADER], fill=theme_rgb)
-
-    header_f = _f("heavy", 28)
-    x = PAD_X
-
-    # RENMAD column — no label text, just logo below the band
-    if renmad_scaled and renmad_col_w > 0:
-        logo_area_top = H_ACCENT + H_HEADER + PAD_Y
-        logo_area_h   = strip_h - logo_area_top - PAD_Y
-        rx = x + (renmad_col_w - renmad_scaled.width) // 2
-        ry = logo_area_top + max(0, (logo_area_h - renmad_scaled.height) // 2)
-        _paste(canvas, renmad_scaled, rx, ry)
-        x += renmad_col_w
-
-    for col_idx, col in enumerate(columns):
-        col_w  = col["col_w"]
-        logo_h = _logo_h_for_col(col)
-        name   = col["name"].upper()
-
-        # (band already drawn full-width above)
-
-        # Label text, centred in header band — shrink font if too wide
-        if name:
-            try:
-                max_text_w = col_w - 16
-                f = header_f
-                for size in range(28, 9, -2):
-                    f = _f("heavy", size)
-                    lb = draw.textbbox((0, 0), name, font=f)
-                    if lb[2] <= max_text_w:
-                        break
-                lb = draw.textbbox((0, 0), name, font=f)
-                tx = x + (col_w - lb[2]) // 2
-                ty = H_ACCENT + (H_HEADER - lb[3]) // 2
-                draw.text((tx, ty), name, font=f, fill=TEXT_WHITE)
-            except Exception:
-                pass
-
-        # Logos
-        logo_top = H_ACCENT + H_HEADER + PAD_Y
-        logo_bot = strip_h - PAD_Y
-        inner_w  = max(10, col_w - COL_PAD)
-        max_w    = min(int(logo_h * 3.5), inner_w - 4)
-
-        rows = _fit_logos_in_column(col["logos"], logo_h, max_w, inner_w)
-
-        if rows:
-            total_h  = _column_logos_height(rows)
-            area_h   = max(10, logo_bot - logo_top)
-            y_block  = logo_top + max(0, (area_h - total_h) // 2)
-
-            for row in rows:
-                row_w = sum(s.width for s in row) + GAP_X * (len(row) - 1)
-                row_h = max(s.height for s in row)
-                lx    = x + (col_w - row_w) // 2
-                for sl in row:
-                    _paste(canvas, sl, lx, y_block + (row_h - sl.height) // 2)
-                    lx += sl.width + GAP_X
-                y_block += row_h + ROW_GAP
-
-        x += col_w
-
-
-# ── Renderer: speaker section ─────────────────────────────────────────────────
-def _draw_speakers(
-    canvas: Image.Image,
-    draw: ImageDraw.ImageDraw,
-    theme_rgb: tuple,
-    speakers: list,
-    strip_h: int,
-    language: str,
-    canvas_h: int,
-) -> None:
-    # Full-width theme-colour header bar
-    draw.rectangle([0, strip_h, W, strip_h + SPK_HDR_H], fill=theme_rgb)
-
-    label   = _SPK_LABEL.get(language, _SPK_LABEL["en"])
-    label_f = _f("heavy", 28)
-    try:
-        lb = draw.textbbox((0, 0), label, font=label_f)
-        lx = (W - lb[2]) // 2
-        ly = strip_h + (SPK_HDR_H - lb[3]) // 2
-        draw.text((lx, ly), label, font=label_f, fill=TEXT_WHITE)
-    except Exception:
-        pass
-
-    # Collect + scale speaker logos
-    all_logos = [lg for spk in speakers for lg in spk.get("logos", [])]
-    scaled    = [s for lg in all_logos for s in [_scale(lg, SPK_H, SPK_MAX_W)] if s]
-
-    if not scaled:
-        return
-
-    grid_top = strip_h + SPK_HDR_H + SPK_PAD_Y
-    usable_w = W - PAD_X * 2
-    total_w  = sum(s.width for s in scaled) + SPK_GAP * (len(scaled) - 1)
-    n_rows   = max(1, math.ceil(total_w / usable_w))
-    per_row  = math.ceil(len(scaled) / n_rows)
-
-    rows   = [scaled[i:i + per_row] for i in range(0, len(scaled), per_row)]
-    row_h  = max((s.height for s in scaled), default=SPK_H)
-    total_block_h = len(rows) * row_h + (len(rows) - 1) * SPK_ROW_GAP
-    area_h        = max(10, canvas_h - grid_top - SPK_PAD_Y)
-    y             = grid_top + max(0, (area_h - total_block_h) // 2)
-
+def _draw_rows(canvas, rows: list, top: int) -> int:
+    """Draw centred rows starting at y=top. Returns the y below the block."""
+    y = top
     for row in rows:
-        rw = sum(s.width for s in row) + SPK_GAP * (len(row) - 1)
-        xc = (W - rw) // 2
-        for sl in row:
-            _paste(canvas, sl, xc, y + (row_h - sl.height) // 2)
-            xc += sl.width + SPK_GAP
-        y += row_h + SPK_ROW_GAP
+        row_w = sum(s.width for s in row) + GAP_X * (len(row) - 1)
+        row_h = max(s.height for s in row)
+        x = (W - row_w) // 2
+        for s in row:
+            _paste(canvas, s, x, y + (row_h - s.height) // 2)
+            x += s.width + GAP_X
+        y += row_h + ROW_GAP
+    return y - ROW_GAP if rows else top
+
+
+# ── Build the ordered list of sponsor groups ──────────────────────────────────
+def _build_groups(tiers: list, secondary: list) -> list:
+    """Return groups in render order: tiers (by rank) then secondary, each with
+    its assigned logo height. Only groups that actually have logos are kept."""
+    active_tiers = [t for t in (tiers or []) if t.get("logos")]
+    active_tiers.sort(key=lambda t: _tier_rank(t.get("name", "")))
+    heights = _tier_heights(len(active_tiers))
+
+    groups = []
+    for tier, h in zip(active_tiers, heights):
+        groups.append({
+            "kind":   "tier",
+            "name":   (tier.get("name", "") or "").upper(),
+            "logos":  tier["logos"],
+            "logo_h": h,
+        })
+    for grp in (secondary or []):
+        if not grp.get("logos"):
+            continue
+        groups.append({
+            "kind":   "secondary",
+            "name":   (grp.get("name", "") or "").upper(),
+            "logos":  grp["logos"],
+            "logo_h": H_SEC,
+        })
+    return groups
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -360,61 +225,83 @@ def generate(
     renmad_logo: Image.Image | None = None,
 ) -> bytes:
     theme_rgb = tuple(theme["rgb"])
+    usable_w  = W - PAD_X * 2
 
-    # Pre-scale RENMAD logo to get its column width
+    # ── Plan every section (scale logos + measure) so we can size the canvas ──
     renmad_scaled = None
-    renmad_logo_w = 0
     if renmad_logo:
         try:
-            rl_h          = 60
-            renmad_scaled = _scale(renmad_logo, rl_h, int(rl_h * 4))
-            if renmad_scaled:
-                renmad_logo_w = renmad_scaled.width
-        except Exception:
-            pass
-
-    renmad_col_w, columns = _compute_col_widths(
-        renmad_logo, secondary, tiers, renmad_logo_w
-    )
-
-    active_spk    = [s for s in (speakers or []) if s.get("logos")]
-    show_speakers = bool(active_spk)
-
-    strip_h = _compute_strip_h(columns) if columns else (H_ACCENT + H_HEADER + 80)
-
-    # Re-scale RENMAD to fit the computed strip height
-    if renmad_logo and renmad_logo_w > 0:
-        rl_h = min(60, strip_h - H_ACCENT - PAD_Y * 2)
-        try:
-            renmad_scaled = _scale(renmad_logo, max(20, rl_h), int(rl_h * 4))
+            renmad_scaled = _scale(renmad_logo, RENMAD_H, int(RENMAD_H * 5))
         except Exception:
             renmad_scaled = None
 
-    # Speaker section height
-    if show_speakers:
-        all_spk  = [lg for s in active_spk for lg in s.get("logos", [])]
-        spk_sc   = [s for lg in all_spk for s in [_scale(lg, SPK_H, SPK_MAX_W)] if s]
-        if spk_sc:
-            usable_w     = W - PAD_X * 2
-            total_w      = sum(s.width for s in spk_sc) + SPK_GAP * (len(spk_sc) - 1)
-            n_rows       = max(1, math.ceil(total_w / usable_w))
-            row_h        = max(s.height for s in spk_sc)
-            spk_grid_h   = n_rows * row_h + (n_rows - 1) * SPK_ROW_GAP
-        else:
-            spk_grid_h = SPK_H
-        canvas_h = strip_h + SPK_HDR_H + spk_grid_h + SPK_PAD_Y * 2
-    else:
-        canvas_h = strip_h
+    groups = _build_groups(tiers, secondary)
+    for g in groups:
+        g["rows"]    = _layout_rows(g["logos"], g["logo_h"], usable_w)
+        g["block_h"] = _rows_block_h(g["rows"])
+        # tier labels are bold theme text; secondary labels are smaller grey
+        g["label_font"] = _f("heavy", 28 if g["kind"] == "tier" else 22)
+        g["label_h"]    = _text_size(g["name"], g["label_font"])[1] if g["name"] else 0
 
-    canvas_h = max(80, canvas_h)
+    active_spk = [s for s in (speakers or []) if s.get("logos")]
+    spk_logos  = [lg for s in active_spk for lg in s.get("logos", [])]
+    spk_rows   = _layout_rows(spk_logos, H_SPK, usable_w) if spk_logos else []
+    spk_block_h = _rows_block_h(spk_rows)
 
+    # ── Measure total height ──────────────────────────────────────────────────
+    y = H_ACCENT + TOP_PAD
+    if renmad_scaled:
+        y += renmad_scaled.height + GAP_AFTER_RENMAD
+    for i, g in enumerate(groups):
+        if g["name"]:
+            y += g["label_h"] + LABEL_GAP
+        y += g["block_h"]
+        if i < len(groups) - 1:
+            y += GROUP_GAP
+    if not groups:
+        y += 40
+    if spk_rows:
+        y += GROUP_GAP + SPK_HDR_H + SPK_PAD_Y + spk_block_h + SPK_PAD_Y
+    canvas_h = max(120, y + BOTTOM_PAD)
+
+    # ── Draw ──────────────────────────────────────────────────────────────────
     canvas = Image.new("RGB", (W, canvas_h), BG)
     draw   = ImageDraw.Draw(canvas)
 
-    _draw_strip(canvas, draw, theme_rgb, columns, renmad_col_w, renmad_scaled, strip_h)
+    # Top accent line
+    draw.rectangle([0, 0, W, H_ACCENT], fill=theme_rgb)
 
-    if show_speakers:
-        _draw_speakers(canvas, draw, theme_rgb, active_spk, strip_h, language, canvas_h)
+    y = H_ACCENT + TOP_PAD
+
+    # RENMAD logo, centred
+    if renmad_scaled:
+        _paste(canvas, renmad_scaled, (W - renmad_scaled.width) // 2, y)
+        y += renmad_scaled.height + GAP_AFTER_RENMAD
+
+    # Sponsor / partner tiers, biggest first
+    for i, g in enumerate(groups):
+        if g["name"]:
+            f  = g["label_font"]
+            tw = _text_size(g["name"], f)[0]
+            colour = theme_rgb if g["kind"] == "tier" else SEC_LABEL
+            draw.text(((W - tw) // 2, y), g["name"], font=f, fill=colour)
+            y += g["label_h"] + LABEL_GAP
+        if g["rows"]:
+            y = _draw_rows(canvas, g["rows"], y)
+        if i < len(groups) - 1:
+            y += GROUP_GAP
+
+    # Speakers
+    if spk_rows:
+        y += GROUP_GAP
+        draw.rectangle([0, y, W, y + SPK_HDR_H], fill=theme_rgb)
+        label   = _SPK_LABEL.get(language, _SPK_LABEL["en"])
+        label_f = _f("heavy", 28)
+        lw_, lh_ = _text_size(label, label_f)
+        draw.text(((W - lw_) // 2, y + (SPK_HDR_H - lh_) // 2),
+                  label, font=label_f, fill=TEXT_WHITE)
+        y += SPK_HDR_H + SPK_PAD_Y
+        _draw_rows(canvas, spk_rows, y)
 
     buf = io.BytesIO()
     canvas.save(buf, format="PNG", dpi=(150, 150))
