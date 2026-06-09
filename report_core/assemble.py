@@ -195,7 +195,7 @@ def derive_segments(regs, per_seg=8):
     return out
 
 
-def derive_comp_sample(regs, n=18, exclude=None):
+def derive_comp_sample(regs, n=30, exclude=None):
     ex = {norm_key(x) for x in (exclude or []) if x}
     cnt = Counter(_clean_company(r.company) for r in regs if _is_real_company(_clean_company(r.company)))
     cleaned = clean_list([c for c, _ in cnt.most_common(n * 3)])

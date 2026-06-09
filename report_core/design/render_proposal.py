@@ -484,7 +484,7 @@ def slide_industries(st, lang):
     # right card: selected companies (larger chips)
     card(d,[1110,CY0,1850,CY1])
     T(d,(1162,CY0+40),s["sel_comp"],bold(22),CHAR,anchor="la")
-    chips(d, WEBINAR.get("comp_sample", [])[:22], 1162, CY0+118, 1810, CY1-24, fs=20, h=56, vstep=72)
+    chips(d, WEBINAR.get("comp_sample", [])[:30], 1162, CY0+118, 1810, CY1-24, fs=19, h=52, vstep=64)
     footer(d,4,lang); return save(img,f"04_industries_{lang}.png")
 
 def slide_companies(st, lang):
