@@ -3,9 +3,9 @@
 RENMAD Content Generator — landing page.
 
 Three tools live inside:
-  • 🎤 Webinar  — marketing material for a single webinar session
-  • 📅 Event    — full-event marketing pack (banners per sponsor / partner)
-  • 📊 Reports  — post-webinar marketing & audience report (paid webinars)
+  • 🎤 Webinar  — promo images for a single webinar session
+  • 📅 Event    — event images: Ingo, Marketing partners (sponsor banners), or Logo wall
+  • 📊 Reports  — post-webinar audience report (branded PPTX from Zoom CSVs)
 """
 import os
 import streamlit as st
@@ -18,11 +18,11 @@ _ata_logo = os.path.join(_LOGO_DIR, "ata_logo.png")
 if os.path.exists(_ata_logo):
     st.sidebar.image(_ata_logo, width=140)
 st.sidebar.title("RENMAD Generator")
-st.sidebar.caption("Switch between **Webinar**, **Event** and **Reports** above.")
+st.sidebar.caption("Pick a tool here or on the home page.")
 
 # ── Main landing ─────────────────────────────────────────────────────────────
 st.title("🎨 RENMAD Content Generator")
-st.markdown("##### Pick a tool")
+st.markdown("On-brand marketing images for RENMAD webinars and events. Pick a tool:")
 st.write("")
 
 col_a, col_b, col_c = st.columns(3, gap="large")
@@ -32,10 +32,10 @@ with col_a:
         st.markdown(
             """
 ### 🎤 Webinar
-Marketing assets for **one webinar session**.
+Promo images for **one webinar**.
 
-- Title slide (PNG + editable PPTX)
-- LinkedIn post · miniature · Ingo templates
+- Title slide (editable PPTX)
+- LinkedIn, miniature & Ingo images
 """
         )
         if st.button("Open Webinar →", type="primary", use_container_width=True, key="goto_webinar"):
@@ -46,10 +46,11 @@ with col_b:
         st.markdown(
             """
 ### 📅 Event
-Marketing pack for a **multi-day event**.
+Images for a **full event** — pick one to make:
 
-- 4 banners per sponsor / partner
-- Add sponsors as they come in, regenerate just the new
+- 📸 **Ingo** — event infographic (ES + EN)
+- 🎨 **Marketing partners** — 4 banners per sponsor
+- 🖼️ **Logo wall** — all sponsors by tier
 """
         )
         if st.button("Open Event →", type="primary", use_container_width=True, key="goto_event"):
@@ -60,14 +61,11 @@ with col_c:
         st.markdown(
             """
 ### 📊 Reports
-**Marketing & audience report** for a paid webinar.
+**Audience report** after a webinar.
 
-- Branded editable PPTX (EN · ES · IT · PL)
-- From the webinar link + registration & Zoom CSVs
+- Branded PPTX (EN · ES · IT · PL)
+- Built from the webinar link + Zoom CSVs
 """
         )
         if st.button("Open Reports →", type="primary", use_container_width=True, key="goto_reports"):
             st.switch_page("pages/3_📊_Reports.py")
-
-st.write("")
-st.caption("💡 All three are also in the sidebar.")
