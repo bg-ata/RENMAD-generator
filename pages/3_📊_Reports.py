@@ -115,11 +115,12 @@ if youtube_url.strip():
     else:
         st.warning("Couldn't auto-read YouTube views — type the number in the **YouTube views** box "
                    "or it won't be counted in the total.")
-if sc and sc.get("speakers"):
-    st.caption("Speakers — edit names / roles / companies before generating:")
+if sc:
+    st.caption("Speakers — edit, or use the **+** at the bottom to add people by hand "
+               "(a photo is optional; names with no photo show a placeholder circle):")
     ss["speakers_edit"] = st.data_editor(
         [{"Name": s["name"], "Role": s["role"], "Company": s["company"],
-          "Moderator": s["is_moderator"]} for s in sc["speakers"]],
+          "Moderator": s["is_moderator"]} for s in sc.get("speakers", [])],
         num_rows="dynamic", use_container_width=True, hide_index=True, key="spk_editor",
     )
 else:

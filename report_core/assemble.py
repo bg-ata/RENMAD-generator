@@ -329,7 +329,9 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
         speakers.append({"name": sp["name"], "role": sp.get("role", ""),
                          "org": sp.get("company") or sp.get("org", ""),
                          "photo": fn, "mod": sp.get("is_moderator", sp.get("mod", False))})
-    speakers = [s for s in speakers if s["photo"]]
+    # keep any speaker the user entered (a name is enough); a photo is optional —
+    # the cover renders a placeholder disc when there is no photo.
+    speakers = [s for s in speakers if (s.get("name") or "").strip()]
 
     sponsor_fn = download_image(form.get("sponsor_logo_url"), assets_dir, "sponsor_logo")
 
