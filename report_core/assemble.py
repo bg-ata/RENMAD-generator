@@ -213,7 +213,41 @@ def is_sponsor(name, sponsors):
     return False
 
 
-def derive_comp_sample(regs, n=30, exclude=None):
+_LOGO_NOISE = {"logo", "logos", "color", "colour", "rgb", "cmyk", "blanco", "negro", "white",
+               "black", "positivo", "negativo", "horizontal", "vertical", "alta", "baja",
+               "resolucion", "resolution", "transparent", "transparente", "fondo", "final",
+               "oficial", "official", "new", "copy", "def", "vector", "isotipo", "imagotipo"}
+
+def sponsor_names_from_scrape(scraped):
+    """Best-effort sponsor name(s) extracted from the webinar page, so the user
+    doesn't have to type them: from the sponsor LOGO file names (most reliable),
+    plus any non-ATA speaker company. e.g. 'LOGO_One-Hub-Energy_Color_RGB-1024x315.png'
+    -> 'One Hub Energy'."""
+    names = []
+    for url in (scraped.get("logos") or []):
+        base = (url or "").split("/")[-1]
+        base = re.sub(r"\.(png|jpe?g|webp|svg|gif)$", "", base, flags=re.I)
+        base = re.sub(r"[-_]?\d+x\d+$", "", base)          # strip size suffix -1024x315
+        base = re.sub(r"[-_]\d+$", "", base)               # strip trailing -1
+        toks = [t for t in re.split(r"[ _\-.]+", base)
+                if t and t.lower() not in _LOGO_NOISE and not re.fullmatch(r"\d+", t)]
+        nm = re.sub(r"\s+", " ", " ".join(toks)).strip()
+        if nm and "atainsights" not in norm_key(nm) and norm_key(nm) != "ata":
+            names.append(nm)
+    for sp in (scraped.get("speakers") or []):
+        org = (sp.get("company") or sp.get("org") or "").strip()
+        if org and norm_key(org) != norm_key("ATA Insights"):
+            names.append(org)
+    # dedupe, keep order
+    seen, out = set(), []
+    for n in names:
+        k = norm_key(n)
+        if k and k not in seen:
+            seen.add(k); out.append(n)
+    return out
+
+
+def derive_comp_sample(regs, n=48, exclude=None):
     ex = [x for x in (exclude or []) if x]
     cnt = Counter(_clean_company(r.company) for r in regs if _is_real_company(_clean_company(r.company)))
     cleaned = clean_list([c for c, _ in cnt.most_common(n * 3)])
@@ -375,10 +409,14 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
     contact = form.get("contact") or {"name": "Cintia Hernández", "role": "Business Development",
                                       "email": "cintia.hernandez@ata.email", "phone": "+34 605 40 85 93"}
     contact.setdefault("phone", "+34 605 40 85 93")
-    sponsor = form.get("sponsor_name") or ""
-    comp_sample = form.get("comp_override") or derive_comp_sample(regs, exclude=[sponsor] if sponsor else None)
-    if sponsor:
-        comp_sample = [c for c in comp_sample if not is_sponsor(c, [sponsor])]
+    # sponsor names to exclude: the one typed by the user (if any) PLUS the names
+    # auto-extracted from the webinar page (sponsor logo file + non-ATA speaker
+    # company) — so the user doesn't have to type the sponsor name.
+    sponsors = [s for s in ([form.get("sponsor_name") or ""] + sponsor_names_from_scrape(scraped))
+                if s and s.strip()]
+    comp_sample = form.get("comp_override") or derive_comp_sample(regs, exclude=sponsors)
+    if sponsors:
+        comp_sample = [c for c in comp_sample if not is_sponsor(c, sponsors)]
     job_titles = top_job_titles(stats.get("live_job_titles", []), override=form.get("titles_override"))
 
     webinar = {

@@ -95,8 +95,10 @@ if youtube_url.strip() and y2.button("🔄 Retry auto-read", key="yt_retry",
     ss.pop("_yt_views_cache", None)
 logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in (sc or {}).get("logos", [])]
 sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
-sponsor_name = st.text_input("Sponsor name (excluded from the company lists)", key="sponsor_name",
-                             placeholder="e.g. One Hub Energy")
+sponsor_name = st.text_input("Sponsor name (optional — auto-detected from the webinar page)", key="sponsor_name",
+                             placeholder="e.g. One Hub Energy",
+                             help="The sponsor is read automatically from the webinar page (logo + speaker) and "
+                                  "left out of the company list. Only fill this in to add or correct that name.")
 # show the resolved YouTube views (manual wins, else auto-fetch) so it's never a surprise
 _resolved_views = (youtube_views or "").strip()
 if not _resolved_views and youtube_url.strip():
@@ -137,7 +139,9 @@ if reg_csv and zoom_csv:
         ss["zoom_path"] = _tmp_csv(zoom_csv)
         ss["stats"] = build_stats(ss["reg_path"], ss["zoom_path"])
         _regs = load_registrations(ss["reg_path"])
-        ss["comp_default"] = derive_comp_sample(_regs, exclude=[sponsor_name] if sponsor_name else None)
+        from assemble import sponsor_names_from_scrape
+        _sponsors = [s for s in ([sponsor_name] + sponsor_names_from_scrape(sc or {})) if s and s.strip()]
+        ss["comp_default"] = derive_comp_sample(_regs, exclude=_sponsors)
         ss["titles_default"] = top_job_titles(ss["stats"].get("live_job_titles", []))
         kf = ss["stats"]["key_facts"]; m = st.columns(5)
         m[0].metric("Registrations", f"{kf['registrations']:,}")

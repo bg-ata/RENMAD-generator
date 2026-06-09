@@ -27,6 +27,32 @@ ANNOTATE = False   # when True, add a "highlight / why it matters" note to each 
 SUFFIX = ""        # output filename suffix (e.g. "_annotated")
 COVER_PHOTOS = []  # native editable speaker photos for the cover slide (px coords)
 LINK_INFO = None   # clickable hyperlink rect for the engagement (YouTube) slide
+NATIVE_NUMS = []   # editable number/text overlays (so figures can be typed over in PowerPoint)
+
+# native-text overlay support: figures are NOT baked into the slide PNG; instead
+# they are added as real, editable PowerPoint text boxes (build_pptx) and painted
+# back onto the on-disk PNG only for the in-app preview (_bake_preview).
+_KIND2FILE = {"black": "Montserrat-Black.ttf", "bold": "Montserrat-Bold.ttf",
+              "semi": "Montserrat-SemiBold.ttf", "reg": "Inter-Regular.ttf"}
+_KIND2PPTX = {"black": ("Montserrat Black", False), "bold": ("Montserrat", True),
+              "semi": ("Montserrat SemiBold", False), "reg": ("Inter", False)}
+_MEASURE = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+
+def _font1(kind, px):
+    return ImageFont.truetype(os.path.join(FONTS, _KIND2FILE[kind]), int(px))
+
+def nnum(text, x, y, px, rgb, anchor, slide, kind="black", url=None):
+    """Register an EDITABLE figure (not drawn on the baked canvas). `px` is the
+    pixel size on the 1920-wide canvas; `slide` is the deck index; `anchor` is the
+    PIL anchor used for the original layout (la / mm / rm / lm)."""
+    NATIVE_NUMS.append({"slide": slide, "x": x, "y": y, "px": px, "text": str(text),
+                        "rgb": rgb, "anchor": anchor, "kind": kind, "url": url})
+
+def _num_bbox(e):
+    """Tight pixel bbox (l,t,r,b) of the figure on the 1920-wide canvas."""
+    f = _font1(e["kind"], e["px"])
+    bb = _MEASURE.textbbox((0, 0), e["text"], font=f, anchor=e["anchor"])
+    return (e["x"] + bb[0], e["y"] + bb[1], e["x"] + bb[2], e["y"] + bb[3])
 
 # ---------------------------------------------------------------- palette (EU look)
 ORANGE = (255, 74, 0)
@@ -437,7 +463,7 @@ def slide_facts(st, lang):
         numc, labc, ctxc = (WHITE,WHITE,(255,224,210)) if hero else (CHAR,CHAR,MUTE)
         if hero: rrect(d,[cx,cy,cx+cw,cy+ch],20,fill=ORANGE); badge(d,cx+108,cy+108,52,WHITE,key,ORANGE,46)
         else:    card(d,[cx,cy,cx+cw,cy+ch],edge=bg);        badge(d,cx+108,cy+108,52,bg,key,icol,46)
-        T(d,(cx+58,cy+166),num,black(84),numc,anchor="la")
+        nnum(num,cx+58,cy+166,84,numc,"la",1,"black")
         T(d,(cx+62,cy+266),lab,semi(25),labc,anchor="la")
         T(d,(cx+62,cy+304),ctx[i],reg(16),ctxc,anchor="la")
     footer(d,2,lang); return save(img,f"02_facts_{lang}.png")
@@ -459,7 +485,7 @@ def slide_country(st, lang):
     regs=st["regions"][:6]
     dcy=CY0+260
     donut(img,d,1380,dcy,150,46,[(r["label"],r["pct"],RAMP[i%len(RAMP)]) for i,r in enumerate(regs)],hole=WHITE)
-    T(d,(1380,dcy-15),f"{st['countries'].get('distinct', st['key_facts']['countries'])}",black(46),CHAR,anchor="mm")
+    nnum(f"{st['countries'].get('distinct', st['key_facts']['countries'])}",1380,dcy-15,46,CHAR,"mm",2,"black")
     T(d,(1380,dcy+30),s["countries_rep"],reg(13),MUTE,anchor="mm")
     ly=CY0+440
     for i,r in enumerate(regs):
@@ -484,7 +510,7 @@ def slide_industries(st, lang):
     # right card: selected companies (larger chips)
     card(d,[1110,CY0,1850,CY1])
     T(d,(1162,CY0+40),s["sel_comp"],bold(22),CHAR,anchor="la")
-    chips(d, WEBINAR.get("comp_sample", [])[:30], 1162, CY0+118, 1810, CY1-24, fs=19, h=52, vstep=64)
+    chips(d, WEBINAR.get("comp_sample", [])[:48], 1162, CY0+104, 1816, CY1-16, fs=18, h=50, vstep=60)
     footer(d,4,lang); return save(img,f"04_industries_{lang}.png")
 
 def slide_companies(st, lang):
@@ -511,7 +537,7 @@ def slide_engagement(st, lang):
     card(d,[70,lt,760,H-90])
     dcy=lt+int(Hin*0.25)
     donut(img,d,415,dcy,140,44,[("",live["pct_ge_30min"],ORANGE),("",live["pct_lt_30min"],TRACK)],hole=WHITE)
-    T(d,(415,dcy-18),f"{live['pct_ge_30min']:.0f}%",black(48),CHAR,anchor="mm")
+    nnum(f"{live['pct_ge_30min']:.0f}%",415,dcy-18,48,CHAR,"mm",4,"black")
     T(d,(415,dcy+28),"30+ "+s["minutes"],reg(13),MUTE,anchor="mm")
     T(d,(415,lt+int(Hin*0.47)),s["ge30"],semi(18),CHAR,anchor="mm")
     T(d,(120,lt+int(Hin*0.55)),s["retention"],bold(15),CHAR,anchor="la")
@@ -528,7 +554,8 @@ def slide_engagement(st, lang):
     for i,(num,lab,key,col) in enumerate(tiles):
         x=tx+(i%2)*(twd+30); y=ty+(i//2)*(thd+tg); card(d,[x,y,x+twd,y+thd],edge=col)
         badge(d,x+twd-66,y+62,32,col,key,WHITE,28)
-        T(d,(x+46,y+44),num,black(50),CHAR,anchor="la")
+        if i==2: T(d,(x+46,y+44),num,black(50),CHAR,anchor="la")   # top country (text, not editable)
+        else:    nnum(num,x+46,y+44,50,CHAR,"la",4,"black")
         T(d,(x+50,y+128),lab,semi(21),MUTE,anchor="la")
     yb=ty+2*(thd+tg)+6
     rrect(d,[820,yb,1850,H-90],16,fill=CHAR)
@@ -539,7 +566,7 @@ def slide_engagement(st, lang):
     yv=WEBINAR.get("youtube_views")
     vline=WEBINAR["youtube"]+"    ·    "+(f"{yv} {s['views']}" if yv else s["views"]+": ____")
     global LINK_INFO
-    LINK_INFO={"slide":5,"box":(958,yb+20,1840,H-90-20),"url":WEBINAR["youtube_url"],
+    LINK_INFO={"slide":4,"box":(958,yb+20,1840,H-90-20),"url":WEBINAR["youtube_url"],
                "title":s["watch_yt"],"line2":vline}
     footer(d,5,lang); return save(img,f"06_engagement_{lang}.png")
 
@@ -557,7 +584,7 @@ def slide_reach(st, lang):
         numc, labc = (WHITE, (255,224,210)) if hero else (CHAR, MUTE)
         if hero: rrect(d,[x,y0,x+cw,y0+ch],18,fill=ORANGE); badge(d,x+cw-70,y0+66,38,WHITE,key,ORANGE,32)
         else:    card(d,[x,y0,x+cw,y0+ch],edge=col);        badge(d,x+cw-70,y0+66,38,col,key,WHITE,32)
-        T(d,(x+50,y0+44),num,black(64),numc,anchor="la")
+        nnum(num,x+50,y0+44,64,numc,"la",5,"black")
         lns=wrap_lines(d,lab,semi(18),cw-90,2)
         for k,ln in enumerate(lns):
             T(d,(x+54,y0+148+k*26),ln,semi(18),labc,anchor="la")
@@ -569,7 +596,7 @@ def slide_reach(st, lang):
     for r,(name,sent,op,cl) in enumerate(em["rows"]):
         ry=ty+150+r*66
         T(d,(cols[0],ry),name,semi(21),CHAR,anchor="lm")
-        for j,val in zip(range(1,4),(sent,op,cl)): T(d,(cols[j],ry),val,reg(21),CHAR,anchor="rm")
+        for j,val in zip(range(1,4),(sent,op,cl)): nnum(val,cols[j],ry,21,CHAR,"rm",5,"reg")
     icon(d,82,ty+462,"people",18,MUTE)
     T(d,(106,ty+462),s["db_note"],reg(16),MUTE,anchor="lm")
     footer(d,6,lang); return save(img,f"07_reach_{lang}.png")
@@ -610,7 +637,10 @@ def slide_contact(st, lang):
     for i,(key,a,b) in enumerate(rows):
         yy=452+i*90
         badge(d,152,yy+14,32,ORANGE,key,WHITE,28)
-        T(d,(214,yy),a,bold(24),WHITE,anchor="la")
+        if key=="mail":   # clickable mailto: native, editable text box
+            nnum(a,214,yy,24,WHITE,"la",7,"bold",url="mailto:"+a)
+        else:
+            T(d,(214,yy),a,bold(24),WHITE,anchor="la")
         if b: T(d,(214,yy+36),b,reg(19),(205,200,196),anchor="la")
     # sponsor co-brand lockup (only if a sponsor logo is present)
     sp_logo=WEBINAR.get("sponsor_logo")
@@ -632,12 +662,13 @@ def relevant_orgs(regs, targets):
     return out
 
 # ---------------------------------------------------------------- run
-def build_pptx(paths, name, photos=None, link=None):
+def build_pptx(paths, name, photos=None, link=None, nums=None):
     try:
         from pptx import Presentation
         from pptx.util import Inches, Pt
         from pptx.oxml.ns import qn
         from pptx.enum.text import MSO_ANCHOR
+        from pptx.enum.text import PP_ALIGN
         from pptx.dml.color import RGBColor
     except Exception as e:
         print("pptx skip:",e); return
@@ -689,11 +720,54 @@ def build_pptx(paths, name, photos=None, link=None):
             tpart._blob=etree.tostring(root)
         except Exception as e:
             print('theme hlink skip',e)
+    # native, editable figures (numbers / email) — typed over in PowerPoint
+    _ALIGN = {"l": PP_ALIGN.LEFT, "m": PP_ALIGN.CENTER, "r": PP_ALIGN.RIGHT}
+    for e in (nums or []):
+        if e["slide"] >= len(sl):
+            continue
+        s = sl[e["slide"]]
+        l, t, r, b = _num_bbox(e)
+        cx = (l + r) / 2.0; cy = (t + b) / 2.0
+        boxw = (r - l) + 44; boxh = e["px"] * 1.7
+        ax = e["anchor"][0]
+        bl = l if ax == "l" else (r - boxw if ax == "r" else cx - boxw / 2.0)
+        bt = cy - boxh / 2.0
+        tb = s.shapes.add_textbox(Inches(bl/PXIN), Inches(bt/PXIN), Inches(boxw/PXIN), Inches(boxh/PXIN))
+        tf = tb.text_frame; tf.word_wrap = False; tf.auto_size = None
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tf.margin_left = 0; tf.margin_right = 0; tf.margin_top = 0; tf.margin_bottom = 0
+        p = tf.paragraphs[0]; p.alignment = _ALIGN.get(ax, PP_ALIGN.LEFT)
+        run = p.add_run(); run.text = e["text"]
+        fam, bd = _KIND2PPTX[e["kind"]]
+        run.font.size = Pt(e["px"] / 2.0); run.font.name = fam; run.font.bold = bd
+        run.font.color.rgb = RGBColor(*e["rgb"])
+        if e.get("url"):
+            run.hyperlink.address = e["url"]
+            run.font.underline = False
+            _rPr = run._r.get_or_add_rPr()
+            for _u in _rPr.findall(qn('a:uFill')) + _rPr.findall(qn('a:uLn')):
+                _rPr.remove(_u)
     prs.save(os.path.join(OUT,name)); print("PPTX:",os.path.join(OUT,name))
 
-def _bake_preview(lang):
+def _bake_preview(lang, deck=None):
     """After the PPTX is saved, flatten the native speaker photos + YouTube text
-    into the slide PNGs so the in-app preview matches the downloaded file."""
+    + editable figures into the slide PNGs so the in-app preview matches the file."""
+    # editable figures: paint each onto its slide PNG (exact match to the layout)
+    if deck:
+        by_slide = {}
+        for e in NATIVE_NUMS:
+            by_slide.setdefault(e["slide"], []).append(e)
+        for si, items in by_slide.items():
+            if si >= len(deck):
+                continue
+            try:
+                im = Image.open(deck[si]).convert("RGB"); dr = ImageDraw.Draw(im)
+                for e in items:
+                    dr.text((e["x"], e["y"]), e["text"], font=_font1(e["kind"], e["px"]),
+                            fill=tuple(e["rgb"]), anchor=e["anchor"])
+                im.save(deck[si])
+            except Exception as ex:
+                print("preview nums skip", ex)
     cov = os.path.join(OUT, "01_cover_%s.png" % lang)
     try:
         im = Image.open(cov).convert("RGB")
@@ -729,11 +803,12 @@ def generate_report(webinar, insights, stats, orgs, lang="en", annotate=False,
     orgs     : list of (company, name, job_title) for the 'most relevant orgs' slide.
     Returns the path to the saved .pptx.
     """
-    global WEBINAR, INSIGHTS, ANNOTATE, SUFFIX, ASSETS, OUT, COVER_PHOTOS, LINK_INFO
+    global WEBINAR, INSIGHTS, ANNOTATE, SUFFIX, ASSETS, OUT, COVER_PHOTOS, LINK_INFO, NATIVE_NUMS
     WEBINAR = webinar
     INSIGHTS = insights or {}
     ANNOTATE = annotate
     SUFFIX = ""
+    NATIVE_NUMS = []
     if assets_dir:
         ASSETS = assets_dir
     if out_dir:
@@ -752,6 +827,6 @@ def generate_report(webinar, insights, stats, orgs, lang="en", annotate=False,
             slide_reach(stats, lang), slide_titles(stats, lang), slide_contact(stats, lang)]
     if not filename:
         filename = "ATA_Webinar_Report_%s%s.pptx" % (lang.upper(), "_annotated" if annotate else "")
-    build_pptx(deck, filename, photos=list(COVER_PHOTOS), link=LINK_INFO)
-    _bake_preview(lang)
+    build_pptx(deck, filename, photos=list(COVER_PHOTOS), link=LINK_INFO, nums=list(NATIVE_NUMS))
+    _bake_preview(lang, deck)
     return os.path.join(OUT, filename)
