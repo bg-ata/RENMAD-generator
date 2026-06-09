@@ -195,11 +195,29 @@ def derive_segments(regs, per_seg=8):
     return out
 
 
+def is_sponsor(name, sponsors):
+    """True if `name` looks like one of the sponsor names — tolerant of legal
+    suffixes and partial names (e.g. 'OneHub' / 'One Hub Energy S.L.' both match
+    'One Hub Energy'). Substring match needs >=4 chars to avoid false hits."""
+    k = norm_key(name)
+    if not k:
+        return False
+    for sp in sponsors:
+        sk = norm_key(sp)
+        if not sk:
+            continue
+        if k == sk:
+            return True
+        if len(sk) >= 4 and len(k) >= 4 and (sk in k or k in sk):
+            return True
+    return False
+
+
 def derive_comp_sample(regs, n=30, exclude=None):
-    ex = {norm_key(x) for x in (exclude or []) if x}
+    ex = [x for x in (exclude or []) if x]
     cnt = Counter(_clean_company(r.company) for r in regs if _is_real_company(_clean_company(r.company)))
     cleaned = clean_list([c for c, _ in cnt.most_common(n * 3)])
-    return [c for c in cleaned if norm_key(c) not in ex][:n]
+    return [c for c in cleaned if not is_sponsor(c, ex)][:n]
 
 
 # job-title cleanup: expand abbreviations, fix casing, keep acronyms
@@ -360,7 +378,7 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
     sponsor = form.get("sponsor_name") or ""
     comp_sample = form.get("comp_override") or derive_comp_sample(regs, exclude=[sponsor] if sponsor else None)
     if sponsor:
-        comp_sample = [c for c in comp_sample if norm_key(c) != norm_key(sponsor)]
+        comp_sample = [c for c in comp_sample if not is_sponsor(c, [sponsor])]
     job_titles = top_job_titles(stats.get("live_job_titles", []), override=form.get("titles_override"))
 
     webinar = {
