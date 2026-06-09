@@ -41,16 +41,14 @@ from PIL import Image, ImageDraw, ImageChops
 W = 1920
 
 # ── Layout constants ──────────────────────────────────────────────────────────
-H_ACCENT          = 8     # top theme-colour accent line height
-PAD_X             = 60    # outer left / right margin
-TOP_PAD           = 36    # space under the accent line
-BOTTOM_PAD        = 48    # space at the very bottom
-RENMAD_H          = 76    # RENMAD logo height
-GAP_AFTER_RENMAD  = 44    # space below the RENMAD logo
-LABEL_GAP         = 14    # space between a tier label and its logos
-GROUP_GAP         = 50    # vertical space between tier groups
-GAP_X             = 46    # horizontal gap between logos in a row
-ROW_GAP           = 26    # vertical gap between wrapped logo rows
+PAD_X          = 60    # outer left / right margin
+BOTTOM_PAD     = 46    # space at the very bottom
+BAND_H         = 54    # full-width coloured section header band height
+BAND_FONT      = 30    # section header text size (px)
+PAD_AFTER_BAND = 30    # space between a header band and its logos
+SECTION_GAP    = 46    # vertical space between sections
+GAP_X          = 56    # horizontal gap between logos in a row
+ROW_GAP        = 30    # vertical gap between wrapped logo rows
 
 # ── Size hierarchy ──────────────────────────────────────────────────────────--
 # A "nominal size" is assigned to each PRESENT tier, in importance order (not by
@@ -58,11 +56,11 @@ ROW_GAP           = 26    # vertical gap between wrapped logo rows
 # else the highest tier present) and each next tier steps down hard.
 # The nominal size is the geometric-mean side a logo is normalised to, so all
 # logos in a tier share roughly the same visual AREA regardless of aspect ratio.
-H_FIRST_TIER = 230    # nominal size of the most important present tier
+H_FIRST_TIER = 220    # nominal size of the most important present tier
 TIER_RATIO   = 0.5    # each next tier ≈ half the size (≈ 1/4 the area)
-H_TIER_MIN   = 60     # floor so low tiers stay legible
-H_SEC        = 52     # secondary groups (Media Partner, Host, …) — small
-H_SPK        = 48     # speaker logos — smallest
+H_TIER_MIN   = 70     # floor so low tiers stay legible
+H_SEC        = 64     # secondary groups (Media Partner, Host, …) — small
+H_SPK        = 58     # speaker logos — smallest
 
 # Per-logo caps, as multiples of the tier's nominal size, so an extreme aspect
 # ratio can't blow a logo up vertically or horizontally.
@@ -226,30 +224,42 @@ def _layout_rows(logos: list, nominal: int, usable_w: int) -> list:
     return rows
 
 
-# ── Build the ordered list of sponsor groups ──────────────────────────────────
-def _build_groups(tiers: list, secondary: list) -> list:
+# ── Build the ordered list of sections ────────────────────────────────────────
+def _build_sections(tiers: list, secondary: list, speakers: list, language: str) -> list:
+    """Ordered sections, each {name, logos, nominal}:
+        1) sponsor tiers, biggest first (Diamond → … → Sponsor)
+        2) Confirmed Speakers
+        3) secondary groups (Media Partner, Host, Knowledge Partner, …) — AT THE END
+    """
     active_tiers = [t for t in (tiers or []) if t.get("logos")]
     active_tiers.sort(key=lambda t: _tier_rank(t.get("name", "")))
     sizes = _tier_sizes(len(active_tiers))
 
-    groups = []
+    sections = []
     for tier, sz in zip(active_tiers, sizes):
-        groups.append({
-            "kind":   "tier",
-            "name":   (tier.get("name", "") or "").upper(),
-            "logos":  tier["logos"],
+        sections.append({
+            "name":    (tier.get("name", "") or "").upper(),
+            "logos":   tier["logos"],
             "nominal": sz,
         })
-    for grp in (secondary or []):
-        if not grp.get("logos"):
-            continue
-        groups.append({
-            "kind":   "secondary",
-            "name":   (grp.get("name", "") or "").upper(),
-            "logos":  grp["logos"],
-            "nominal": H_SEC,
+
+    spk_logos = [lg for s in (speakers or []) if s.get("logos") for lg in s["logos"]]
+    if spk_logos:
+        sections.append({
+            "name":    _SPK_LABEL.get(language, _SPK_LABEL["en"]),
+            "logos":   spk_logos,
+            "nominal": H_SPK,
         })
-    return groups
+
+    for grp in (secondary or []):
+        if grp.get("logos"):
+            sections.append({
+                "name":    (grp.get("name", "") or "").upper(),
+                "logos":   grp["logos"],
+                "nominal": H_SEC,
+            })
+
+    return sections
 
 
 # ── Layout plan (shared by every output format) ───────────────────────────────
@@ -267,56 +277,30 @@ def _add_logo_rows(elements: list, rows: list, y: int) -> int:
     return (y - ROW_GAP) if rows else y
 
 
-def _build_plan(event, tiers, secondary, speakers, theme, language, renmad_logo) -> dict:
+def _build_plan(event, tiers, secondary, speakers, theme, language, renmad_logo=None) -> dict:
+    # NOTE: renmad_logo is intentionally ignored for now — the logo wall is
+    # pasted somewhere that already carries RENMAD branding.
     theme_rgb = tuple(theme["rgb"])
     usable_w  = W - PAD_X * 2
     elements  = []
+    y = 0
 
-    # Top accent line
-    elements.append({"type": "rect", "x": 0, "y": 0, "w": W, "h": H_ACCENT, "color": theme_rgb})
+    sections = _build_sections(tiers, secondary, speakers, language)
 
-    y = H_ACCENT + TOP_PAD
-
-    # RENMAD logo, centred
-    if renmad_logo:
-        rs = _scale_h(renmad_logo, RENMAD_H, int(RENMAD_H * 5))
-        if rs:
-            elements.append({"type": "image", "img": rs,
-                             "x": (W - rs.width) // 2, "y": y, "w": rs.width, "h": rs.height})
-            y += rs.height + GAP_AFTER_RENMAD
-
-    # Sponsor / partner tiers, biggest first
-    groups = _build_groups(tiers, secondary)
-    for gi, g in enumerate(groups):
-        if g["name"]:
-            font_role = "heavy" if g["kind"] == "tier" else "bold"
-            font_size = 28 if g["kind"] == "tier" else 22
-            th = _text_size(g["name"], _f(font_role, font_size))[1]
-            colour = theme_rgb if g["kind"] == "tier" else SEC_LABEL
-            elements.append({"type": "label", "text": g["name"], "y": y,
-                             "font": font_role, "size": font_size, "color": colour})
-            y += th + LABEL_GAP
-        rows = _layout_rows(g["logos"], g["nominal"], usable_w)
-        y = _add_logo_rows(elements, rows, y)
-        if gi < len(groups) - 1:
-            y += GROUP_GAP
-    if not groups:
-        y += 40
-
-    # Speakers
-    active_spk = [s for s in (speakers or []) if s.get("logos")]
-    spk_logos  = [lg for s in active_spk for lg in s.get("logos", [])]
-    spk_rows   = _layout_rows(spk_logos, H_SPK, usable_w) if spk_logos else []
-    if spk_rows:
-        y += GROUP_GAP
-        elements.append({"type": "barlabel",
-                         "text": _SPK_LABEL.get(language, _SPK_LABEL["en"]),
-                         "y": y, "barh": SPK_HDR_H, "font": "heavy", "size": 28,
+    for sec in sections:
+        rows = _layout_rows(sec["logos"], sec["nominal"], usable_w)
+        if not rows:
+            continue
+        # Full-width coloured header band with white centred text
+        elements.append({"type": "barlabel", "text": sec["name"], "y": y,
+                         "barh": BAND_H, "font": "heavy", "size": BAND_FONT,
                          "color": TEXT_WHITE, "barcolor": theme_rgb})
-        y += SPK_HDR_H + SPK_PAD_Y
-        y = _add_logo_rows(elements, spk_rows, y)
-        y += SPK_PAD_Y
+        y += BAND_H + PAD_AFTER_BAND
+        y = _add_logo_rows(elements, rows, y)
+        y += SECTION_GAP
 
+    if elements:
+        y -= SECTION_GAP   # drop the trailing gap after the last section
     canvas_h = max(120, y + BOTTOM_PAD)
     return {"canvas_h": canvas_h, "elements": elements, "theme_rgb": theme_rgb}
 
