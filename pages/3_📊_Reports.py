@@ -184,7 +184,7 @@ elif email_text.strip():
 # ── 5 · Options ──────────────────────────────────────────────────────────────
 st.subheader("5 · Options")
 o1, o2 = st.columns(2)
-annotated = o1.toggle("Add 'highlights' notes (annotated version)", value=False)
+annotated = o1.toggle("Add 'highlights' notes (annotated version)", value=True)
 contact = o2.text_input("Contact", value="Cintia Hernández · Business Development · cintia.hernandez@ata.email")
 
 # ── Generate ─────────────────────────────────────────────────────────────────
