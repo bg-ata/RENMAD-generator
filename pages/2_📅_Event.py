@@ -1255,43 +1255,55 @@ elif mode == MODE_WALL:
                 st.code(traceback.format_exc())
 
     # ── Preview & download ────────────────────────────────────────────────────
+    # _lw_result shape: {"es": {"png":.., "pdf":.., "pptx":..}, "en": {...}}
     _lw_result = st.session_state.get("_last_logowall")
     if _lw_result:
         _lw_slug = st.session_state.get("_last_logowall_name", "event")
         st.divider()
+        st.caption("Cada idioma se descarga en **PNG** (imagen), **PDF** (impresión) "
+                   "y **PPTX** (PowerPoint editable — cada logo es una imagen movible).")
+
+        _LW_FMTS = [
+            ("png",  "🖼️ PNG",  "image/png"),
+            ("pdf",  "📄 PDF",   "application/pdf"),
+            ("pptx", "📊 PPTX",  "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+        ]
+
+        def _lw_lang_block(_lang, _flag):
+            _pack = _lw_result.get(_lang)
+            if not _pack:
+                return
+            st.markdown(f"**{_flag}**")
+            if _pack.get("png"):
+                st.image(_pack["png"], use_container_width=True)
+            _dl_cols = st.columns(3)
+            for _dc, (_fmt, _flabel, _mime) in zip(_dl_cols, _LW_FMTS):
+                _bytes = _pack.get(_fmt)
+                _dc.download_button(
+                    _flabel,
+                    data=_bytes if _bytes else b"",
+                    file_name=f"{_lw_slug}_logowall_{_lang}.{_fmt}",
+                    mime=_mime,
+                    use_container_width=True,
+                    disabled=not _bytes,
+                    key=f"dl_lw_{_lang}_{_fmt}",
+                )
 
         _lw_col_es, _lw_col_en = st.columns(2)
         with _lw_col_es:
-            st.markdown("**🇪🇸 Español**")
-            if "es" in _lw_result:
-                st.image(_lw_result["es"], use_container_width=True)
-                st.download_button(
-                    "⬇️ Download ES",
-                    data=_lw_result["es"],
-                    file_name=f"{_lw_slug}_logowall_es.png",
-                    mime="image/png",
-                    use_container_width=True,
-                    key="dl_lw_es",
-                )
+            _lw_lang_block("es", "🇪🇸 Español")
         with _lw_col_en:
-            st.markdown("**🇬🇧 English**")
-            if "en" in _lw_result:
-                st.image(_lw_result["en"], use_container_width=True)
-                st.download_button(
-                    "⬇️ Download EN",
-                    data=_lw_result["en"],
-                    file_name=f"{_lw_slug}_logowall_en.png",
-                    mime="image/png",
-                    use_container_width=True,
-                    key="dl_lw_en",
-                )
+            _lw_lang_block("en", "🇬🇧 English")
 
+        # ZIP — every format, both languages
         _lw_zip = io.BytesIO()
         with zipfile.ZipFile(_lw_zip, "w", zipfile.ZIP_DEFLATED) as _zf:
-            for _lang, _data in _lw_result.items():
-                _zf.writestr(f"{_lw_slug}_logowall_{_lang}.png", _data)
+            for _lang, _pack in _lw_result.items():
+                for _fmt, _, _ in _LW_FMTS:
+                    if _pack.get(_fmt):
+                        _zf.writestr(f"{_lw_slug}_logowall_{_lang}.{_fmt}", _pack[_fmt])
         st.download_button(
-            "📦 Download both (ZIP)",
+            "📦 Download everything (ZIP — PNG + PDF + PPTX, ES + EN)",
             data=_lw_zip.getvalue(),
             file_name=f"{_lw_slug}_logowall.zip",
             mime="application/zip",
@@ -1303,14 +1315,16 @@ elif mode == MODE_WALL:
             "💾 Save Logo Wall to event folder",
             disabled=not active_event_id,
             key="save_lw_btn",
-            help=f"Saves PNGs to event_data/{active_event_id}/logowall/",
+            help=f"Saves PNG + PDF + PPTX to event_data/{active_event_id}/logowall/",
         )
         if _lw_save_btn and active_event_id:
             _lw_dir = os.path.join(_event_dir(active_event_id), "logowall")
             os.makedirs(_lw_dir, exist_ok=True)
             _lw_saved = 0
-            for _lang, _data in _lw_result.items():
-                with open(os.path.join(_lw_dir, f"logowall_{_lang}.png"), "wb") as _fh:
-                    _fh.write(_data)
-                _lw_saved += 1
-            st.success(f"💾 Saved {_lw_saved} logo wall(s) to `{_lw_dir}`")
+            for _lang, _pack in _lw_result.items():
+                for _fmt, _, _ in _LW_FMTS:
+                    if _pack.get(_fmt):
+                        with open(os.path.join(_lw_dir, f"logowall_{_lang}.{_fmt}"), "wb") as _fh:
+                            _fh.write(_pack[_fmt])
+                        _lw_saved += 1
+            st.success(f"💾 Saved {_lw_saved} file(s) to `{_lw_dir}`")

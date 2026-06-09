@@ -8,21 +8,34 @@ Layout  (stacked rows, biggest at the top)
     · RENMAD logo, centred (optional)
     · One ROW PER SPONSOR TIER, most important first:
         – small centred tier label (theme colour) e.g. "DIAMOND SPONSOR"
-        – the tier's logos centred below it, scaled to that tier's height
+        – the tier's logos centred below it, scaled to that tier's size
       Each tier is laid out across the FULL width, so its logos always reach
-      the tier's target height — the more important the tier, the bigger.
-      Rough size hierarchy: each tier is ~half the height (≈4× the area) of the
-      tier below it, so Diamond towers over Gold towers over a plain Sponsor.
+      the tier's target size — the more important the tier, the bigger.
     · Secondary groups (Media Partner, Host, …) — small, after the sponsors.
     · Speaker logos — smallest, under a full-width "CONFIRMED SPEAKERS" bar.
 
+Logo sizing
+───────────
+  Each logo is first TRIMMED of its surrounding white / transparent margin so
+  only the real artwork counts, then scaled to EQUAL VISUAL AREA within its
+  tier (geometric-mean normalisation). So a wide wordmark and a square badge end
+  up looking similarly prominent, instead of the wide one dwarfing the square.
+
+Output
+──────
+  Every wall is produced as PNG, PDF and a fully-editable PPTX (each logo is a
+  separate movable picture, each label a real text box) — all from one shared
+  layout plan, so the three formats match pixel-for-pixel.
+
 Public API:
-  generate(event, tiers, secondary, speakers, theme, language, renmad_logo) -> bytes
-  generate_all_variants(...)                                                  -> dict
+  generate(event, tiers, secondary, speakers, theme, language, renmad_logo) -> PNG bytes
+  generate_pack(...)          -> {"png": bytes, "pdf": bytes, "pptx": bytes}
+  generate_all_variants(...)  -> {"es": pack, "en": pack}
 """
 
 import io
-from PIL import Image, ImageDraw
+import math
+from PIL import Image, ImageDraw, ImageChops
 
 # ── Canvas ────────────────────────────────────────────────────────────────────
 W = 1920
@@ -40,15 +53,21 @@ GAP_X             = 46    # horizontal gap between logos in a row
 ROW_GAP           = 26    # vertical gap between wrapped logo rows
 
 # ── Size hierarchy ──────────────────────────────────────────────────────────--
-# Heights are assigned to the tiers that are ACTUALLY PRESENT, in importance
-# order — not by absolute rank. So the top present tier is always the biggest
-# (Diamond if present, otherwise the highest tier there is) and each subsequent
-# tier steps down hard.
-H_FIRST_TIER = 260    # logo height of the most important present tier
-TIER_RATIO   = 0.5    # each next tier ≈ half the height (≈ 1/4 the area)
-H_TIER_MIN   = 64     # floor so low tiers stay legible
-H_SEC        = 54     # secondary groups (Media Partner, Host, …) — small
-H_SPK        = 50     # speaker logos — smallest
+# A "nominal size" is assigned to each PRESENT tier, in importance order (not by
+# absolute rank). The top present tier is always the biggest (Diamond if there,
+# else the highest tier present) and each next tier steps down hard.
+# The nominal size is the geometric-mean side a logo is normalised to, so all
+# logos in a tier share roughly the same visual AREA regardless of aspect ratio.
+H_FIRST_TIER = 230    # nominal size of the most important present tier
+TIER_RATIO   = 0.5    # each next tier ≈ half the size (≈ 1/4 the area)
+H_TIER_MIN   = 60     # floor so low tiers stay legible
+H_SEC        = 52     # secondary groups (Media Partner, Host, …) — small
+H_SPK        = 48     # speaker logos — smallest
+
+# Per-logo caps, as multiples of the tier's nominal size, so an extreme aspect
+# ratio can't blow a logo up vertically or horizontally.
+H_CAP_MULT   = 1.30   # max height  = nominal * this
+W_CAP_MULT   = 3.40   # max width   = nominal * this
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 BG          = (255, 255, 255)   # white canvas
@@ -60,9 +79,6 @@ TIER_ORDER = ["diamond", "platinum", "global", "gold", "silver", "bronze", "stan
 
 # ── Speaker section ───────────────────────────────────────────────────────────
 SPK_HDR_H   = 72
-SPK_MAX_W   = 150
-SPK_GAP     = 36
-SPK_ROW_GAP = 22
 SPK_PAD_Y   = 28
 
 _SPK_LABEL = {
@@ -75,6 +91,9 @@ _SPK_LABEL = {
 # ── Scratch surface for measuring text ──────────────────────────────────────--
 _SCRATCH   = Image.new("RGB", (8, 8))
 _SCRATCH_D = ImageDraw.Draw(_SCRATCH)
+
+# Pixels → EMU (PowerPoint), at 96 dpi
+_PX_EMU = 9525
 
 
 # ── Font helper ───────────────────────────────────────────────────────────────
@@ -103,8 +122,8 @@ def _tier_rank(name: str) -> int:
     return 7
 
 
-def _tier_heights(n: int) -> list[int]:
-    """Staircase of logo heights for the n present tiers (biggest first)."""
+def _tier_sizes(n: int) -> list[int]:
+    """Staircase of nominal sizes for the n present tiers (biggest first)."""
     out, h = [], float(H_FIRST_TIER)
     for _ in range(n):
         out.append(max(H_TIER_MIN, int(round(h))))
@@ -114,19 +133,63 @@ def _tier_heights(n: int) -> list[int]:
 
 # ── Logo helpers ──────────────────────────────────────────────────────────────
 def _trim(img: Image.Image) -> Image.Image:
+    """Crop away the surrounding margin so only the real artwork counts.
+
+    Removes BOTH transparent padding and a solid (typically white) border, which
+    is what makes logos look inconsistently sized — a logo with lots of built-in
+    whitespace would otherwise be scaled down relative to a tightly-cropped one.
+    """
     rgba = img.convert("RGBA")
-    bbox = rgba.split()[3].getbbox()
-    return rgba.crop(bbox) if bbox else rgba
+
+    # 1) Trim fully-transparent margin first.
+    alpha = rgba.split()[3]
+    abox = alpha.getbbox()
+    if abox:
+        rgba = rgba.crop(abox)
+
+    # 2) Trim a solid background border (e.g. white). Composite over white so any
+    #    remaining transparency reads as white, then keep only pixels that differ
+    #    from white by more than a small threshold (drops anti-alias haloes too).
+    try:
+        white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        comp  = Image.alpha_composite(white, rgba).convert("RGB")
+        diff  = ImageChops.difference(comp, Image.new("RGB", comp.size, (255, 255, 255)))
+        mask  = diff.convert("L").point(lambda p: 255 if p > 18 else 0)
+        cbox  = mask.getbbox()
+        if cbox:
+            cw, ch = cbox[2] - cbox[0], cbox[3] - cbox[1]
+            w, h   = rgba.size
+            # Guard: only crop if there is sane content (avoids nuking a logo that
+            # is genuinely light-on-transparent, which would vanish on white).
+            if cw * ch >= 0.015 * w * h:
+                rgba = rgba.crop(cbox)
+    except Exception:
+        pass
+
+    return rgba
 
 
-def _scale(img: Image.Image, target_h: int, max_w: int) -> Image.Image | None:
+def _scale_area(img: Image.Image, nominal: int) -> Image.Image | None:
+    """Scale so the logo's geometric-mean side ≈ nominal (→ equal visual area
+    across logos), then clamp height/width so extreme aspects stay sane."""
+    logo = _trim(img)
+    lw, lh = logo.size
+    if lw == 0 or lh == 0:
+        return None
+    s = nominal / math.sqrt(lw * lh)
+    s = min(s, (nominal * H_CAP_MULT) / lh, (nominal * W_CAP_MULT) / lw)
+    nw, nh = max(1, int(round(lw * s))), max(1, int(round(lh * s)))
+    return logo.resize((nw, nh), Image.LANCZOS)
+
+
+def _scale_h(img: Image.Image, target_h: int, max_w: int) -> Image.Image | None:
+    """Plain height-based scale (used for the single RENMAD wordmark)."""
     logo = _trim(img)
     lw, lh = logo.size
     if lh == 0 or lw == 0:
         return None
     s = min(target_h / lh, max_w / lw)
-    nw, nh = max(1, int(lw * s)), max(1, int(lh * s))
-    return logo.resize((nw, nh), Image.LANCZOS)
+    return logo.resize((max(1, int(lw * s)), max(1, int(lh * s))), Image.LANCZOS)
 
 
 def _paste(canvas: Image.Image, logo: Image.Image, x: int, y: int) -> None:
@@ -136,13 +199,12 @@ def _paste(canvas: Image.Image, logo: Image.Image, x: int, y: int) -> None:
 
 
 # ── Row layout ──────────────────────────────────────────────────────────────--
-def _layout_rows(logos: list, target_h: int, usable_w: int) -> list:
-    """Scale every logo to target_h (capped to the full width) and wrap into
-    centred rows that each fit inside usable_w. Returns a list of rows."""
+def _layout_rows(logos: list, nominal: int, usable_w: int) -> list:
+    """Equal-area-scale every logo and wrap into rows that fit usable_w."""
     scaled = []
     for lg in logos:
         try:
-            s = _scale(lg, target_h, usable_w)
+            s = _scale_area(lg, nominal)
             if s:
                 scaled.append(s)
         except Exception:
@@ -164,43 +226,19 @@ def _layout_rows(logos: list, target_h: int, usable_w: int) -> list:
     return rows
 
 
-def _rows_block_h(rows: list) -> int:
-    if not rows:
-        return 0
-    total = sum(max(s.height for s in row) for row in rows)
-    total += ROW_GAP * (len(rows) - 1)
-    return total
-
-
-def _draw_rows(canvas, rows: list, top: int) -> int:
-    """Draw centred rows starting at y=top. Returns the y below the block."""
-    y = top
-    for row in rows:
-        row_w = sum(s.width for s in row) + GAP_X * (len(row) - 1)
-        row_h = max(s.height for s in row)
-        x = (W - row_w) // 2
-        for s in row:
-            _paste(canvas, s, x, y + (row_h - s.height) // 2)
-            x += s.width + GAP_X
-        y += row_h + ROW_GAP
-    return y - ROW_GAP if rows else top
-
-
 # ── Build the ordered list of sponsor groups ──────────────────────────────────
 def _build_groups(tiers: list, secondary: list) -> list:
-    """Return groups in render order: tiers (by rank) then secondary, each with
-    its assigned logo height. Only groups that actually have logos are kept."""
     active_tiers = [t for t in (tiers or []) if t.get("logos")]
     active_tiers.sort(key=lambda t: _tier_rank(t.get("name", "")))
-    heights = _tier_heights(len(active_tiers))
+    sizes = _tier_sizes(len(active_tiers))
 
     groups = []
-    for tier, h in zip(active_tiers, heights):
+    for tier, sz in zip(active_tiers, sizes):
         groups.append({
             "kind":   "tier",
             "name":   (tier.get("name", "") or "").upper(),
             "logos":  tier["logos"],
-            "logo_h": h,
+            "nominal": sz,
         })
     for grp in (secondary or []):
         if not grp.get("logos"):
@@ -209,9 +247,177 @@ def _build_groups(tiers: list, secondary: list) -> list:
             "kind":   "secondary",
             "name":   (grp.get("name", "") or "").upper(),
             "logos":  grp["logos"],
-            "logo_h": H_SEC,
+            "nominal": H_SEC,
         })
     return groups
+
+
+# ── Layout plan (shared by every output format) ───────────────────────────────
+def _add_logo_rows(elements: list, rows: list, y: int) -> int:
+    for row in rows:
+        row_w = sum(s.width for s in row) + GAP_X * (len(row) - 1)
+        row_h = max(s.height for s in row)
+        x = (W - row_w) // 2
+        for s in row:
+            elements.append({"type": "image", "img": s,
+                             "x": x, "y": y + (row_h - s.height) // 2,
+                             "w": s.width, "h": s.height})
+            x += s.width + GAP_X
+        y += row_h + ROW_GAP
+    return (y - ROW_GAP) if rows else y
+
+
+def _build_plan(event, tiers, secondary, speakers, theme, language, renmad_logo) -> dict:
+    theme_rgb = tuple(theme["rgb"])
+    usable_w  = W - PAD_X * 2
+    elements  = []
+
+    # Top accent line
+    elements.append({"type": "rect", "x": 0, "y": 0, "w": W, "h": H_ACCENT, "color": theme_rgb})
+
+    y = H_ACCENT + TOP_PAD
+
+    # RENMAD logo, centred
+    if renmad_logo:
+        rs = _scale_h(renmad_logo, RENMAD_H, int(RENMAD_H * 5))
+        if rs:
+            elements.append({"type": "image", "img": rs,
+                             "x": (W - rs.width) // 2, "y": y, "w": rs.width, "h": rs.height})
+            y += rs.height + GAP_AFTER_RENMAD
+
+    # Sponsor / partner tiers, biggest first
+    groups = _build_groups(tiers, secondary)
+    for gi, g in enumerate(groups):
+        if g["name"]:
+            font_role = "heavy" if g["kind"] == "tier" else "bold"
+            font_size = 28 if g["kind"] == "tier" else 22
+            th = _text_size(g["name"], _f(font_role, font_size))[1]
+            colour = theme_rgb if g["kind"] == "tier" else SEC_LABEL
+            elements.append({"type": "label", "text": g["name"], "y": y,
+                             "font": font_role, "size": font_size, "color": colour})
+            y += th + LABEL_GAP
+        rows = _layout_rows(g["logos"], g["nominal"], usable_w)
+        y = _add_logo_rows(elements, rows, y)
+        if gi < len(groups) - 1:
+            y += GROUP_GAP
+    if not groups:
+        y += 40
+
+    # Speakers
+    active_spk = [s for s in (speakers or []) if s.get("logos")]
+    spk_logos  = [lg for s in active_spk for lg in s.get("logos", [])]
+    spk_rows   = _layout_rows(spk_logos, H_SPK, usable_w) if spk_logos else []
+    if spk_rows:
+        y += GROUP_GAP
+        elements.append({"type": "barlabel",
+                         "text": _SPK_LABEL.get(language, _SPK_LABEL["en"]),
+                         "y": y, "barh": SPK_HDR_H, "font": "heavy", "size": 28,
+                         "color": TEXT_WHITE, "barcolor": theme_rgb})
+        y += SPK_HDR_H + SPK_PAD_Y
+        y = _add_logo_rows(elements, spk_rows, y)
+        y += SPK_PAD_Y
+
+    canvas_h = max(120, y + BOTTOM_PAD)
+    return {"canvas_h": canvas_h, "elements": elements, "theme_rgb": theme_rgb}
+
+
+# ── Renderer: raster image (PNG / PDF source) ─────────────────────────────────
+def _render_image(plan: dict) -> Image.Image:
+    canvas = Image.new("RGB", (W, plan["canvas_h"]), BG)
+    draw   = ImageDraw.Draw(canvas)
+    for el in plan["elements"]:
+        t = el["type"]
+        if t == "rect":
+            draw.rectangle([el["x"], el["y"], el["x"] + el["w"], el["y"] + el["h"]],
+                           fill=el["color"])
+        elif t == "image":
+            _paste(canvas, el["img"], el["x"], el["y"])
+        elif t == "label":
+            f = _f(el["font"], el["size"])
+            tw = _text_size(el["text"], f)[0]
+            draw.text(((W - tw) // 2, el["y"]), el["text"], font=f, fill=el["color"])
+        elif t == "barlabel":
+            draw.rectangle([0, el["y"], W, el["y"] + el["barh"]], fill=el["barcolor"])
+            f = _f(el["font"], el["size"])
+            tw, th = _text_size(el["text"], f)
+            draw.text(((W - tw) // 2, el["y"] + (el["barh"] - th) // 2),
+                      el["text"], font=f, fill=el["color"])
+    return canvas
+
+
+# ── Renderer: fully-editable PPTX ─────────────────────────────────────────────
+def _render_pptx(plan: dict) -> bytes:
+    from pptx import Presentation
+    from pptx.util import Emu, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    from pptx.enum.shapes import MSO_SHAPE
+
+    prs = Presentation()
+    prs.slide_width  = Emu(W * _PX_EMU)
+    prs.slide_height = Emu(plan["canvas_h"] * _PX_EMU)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])   # blank
+
+    # White slide background
+    try:
+        bg = slide.background
+        bg.fill.solid()
+        bg.fill.fore_color.rgb = RGBColor(255, 255, 255)
+    except Exception:
+        pass
+
+    def _rect(x, y, w, h, rgb):
+        sh = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                    Emu(x * _PX_EMU), Emu(y * _PX_EMU),
+                                    Emu(w * _PX_EMU), Emu(h * _PX_EMU))
+        sh.fill.solid()
+        sh.fill.fore_color.rgb = RGBColor(*rgb)
+        sh.line.fill.background()
+        try:
+            sh.shadow.inherit = False
+        except Exception:
+            pass
+        return sh
+
+    def _label(text, y, h, size, rgb, anchor_middle=False):
+        tb = slide.shapes.add_textbox(Emu(PAD_X * _PX_EMU), Emu(y * _PX_EMU),
+                                      Emu((W - PAD_X * 2) * _PX_EMU), Emu(h * _PX_EMU))
+        tf = tb.text_frame
+        tf.word_wrap = False
+        tf.margin_top = tf.margin_bottom = tf.margin_left = tf.margin_right = 0
+        if anchor_middle:
+            try:
+                tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+            except Exception:
+                pass
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        r = p.add_run()
+        r.text = text
+        r.font.bold = True
+        r.font.size = Pt(size * 0.75)        # px → pt
+        r.font.name = "Montserrat"
+        r.font.color.rgb = RGBColor(*rgb)
+
+    for el in plan["elements"]:
+        t = el["type"]
+        if t == "rect":
+            _rect(el["x"], el["y"], el["w"], el["h"], el["color"])
+        elif t == "image":
+            b = io.BytesIO()
+            el["img"].convert("RGBA").save(b, "PNG")
+            b.seek(0)
+            slide.shapes.add_picture(b, Emu(el["x"] * _PX_EMU), Emu(el["y"] * _PX_EMU),
+                                     Emu(el["w"] * _PX_EMU), Emu(el["h"] * _PX_EMU))
+        elif t == "label":
+            _label(el["text"], el["y"], int(el["size"] * 1.6), el["size"], el["color"])
+        elif t == "barlabel":
+            _rect(0, el["y"], W, el["barh"], el["barcolor"])
+            _label(el["text"], el["y"], el["barh"], el["size"], el["color"], anchor_middle=True)
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -224,88 +430,38 @@ def generate(
     language:    str = "es",
     renmad_logo: Image.Image | None = None,
 ) -> bytes:
-    theme_rgb = tuple(theme["rgb"])
-    usable_w  = W - PAD_X * 2
-
-    # ── Plan every section (scale logos + measure) so we can size the canvas ──
-    renmad_scaled = None
-    if renmad_logo:
-        try:
-            renmad_scaled = _scale(renmad_logo, RENMAD_H, int(RENMAD_H * 5))
-        except Exception:
-            renmad_scaled = None
-
-    groups = _build_groups(tiers, secondary)
-    for g in groups:
-        g["rows"]    = _layout_rows(g["logos"], g["logo_h"], usable_w)
-        g["block_h"] = _rows_block_h(g["rows"])
-        # tier labels are bold theme text; secondary labels are smaller grey
-        g["label_font"] = _f("heavy", 28 if g["kind"] == "tier" else 22)
-        g["label_h"]    = _text_size(g["name"], g["label_font"])[1] if g["name"] else 0
-
-    active_spk = [s for s in (speakers or []) if s.get("logos")]
-    spk_logos  = [lg for s in active_spk for lg in s.get("logos", [])]
-    spk_rows   = _layout_rows(spk_logos, H_SPK, usable_w) if spk_logos else []
-    spk_block_h = _rows_block_h(spk_rows)
-
-    # ── Measure total height ──────────────────────────────────────────────────
-    y = H_ACCENT + TOP_PAD
-    if renmad_scaled:
-        y += renmad_scaled.height + GAP_AFTER_RENMAD
-    for i, g in enumerate(groups):
-        if g["name"]:
-            y += g["label_h"] + LABEL_GAP
-        y += g["block_h"]
-        if i < len(groups) - 1:
-            y += GROUP_GAP
-    if not groups:
-        y += 40
-    if spk_rows:
-        y += GROUP_GAP + SPK_HDR_H + SPK_PAD_Y + spk_block_h + SPK_PAD_Y
-    canvas_h = max(120, y + BOTTOM_PAD)
-
-    # ── Draw ──────────────────────────────────────────────────────────────────
-    canvas = Image.new("RGB", (W, canvas_h), BG)
-    draw   = ImageDraw.Draw(canvas)
-
-    # Top accent line
-    draw.rectangle([0, 0, W, H_ACCENT], fill=theme_rgb)
-
-    y = H_ACCENT + TOP_PAD
-
-    # RENMAD logo, centred
-    if renmad_scaled:
-        _paste(canvas, renmad_scaled, (W - renmad_scaled.width) // 2, y)
-        y += renmad_scaled.height + GAP_AFTER_RENMAD
-
-    # Sponsor / partner tiers, biggest first
-    for i, g in enumerate(groups):
-        if g["name"]:
-            f  = g["label_font"]
-            tw = _text_size(g["name"], f)[0]
-            colour = theme_rgb if g["kind"] == "tier" else SEC_LABEL
-            draw.text(((W - tw) // 2, y), g["name"], font=f, fill=colour)
-            y += g["label_h"] + LABEL_GAP
-        if g["rows"]:
-            y = _draw_rows(canvas, g["rows"], y)
-        if i < len(groups) - 1:
-            y += GROUP_GAP
-
-    # Speakers
-    if spk_rows:
-        y += GROUP_GAP
-        draw.rectangle([0, y, W, y + SPK_HDR_H], fill=theme_rgb)
-        label   = _SPK_LABEL.get(language, _SPK_LABEL["en"])
-        label_f = _f("heavy", 28)
-        lw_, lh_ = _text_size(label, label_f)
-        draw.text(((W - lw_) // 2, y + (SPK_HDR_H - lh_) // 2),
-                  label, font=label_f, fill=TEXT_WHITE)
-        y += SPK_HDR_H + SPK_PAD_Y
-        _draw_rows(canvas, spk_rows, y)
-
+    """Back-compat: return the PNG bytes only."""
+    plan = _build_plan(event, tiers, secondary, speakers, theme, language, renmad_logo)
     buf = io.BytesIO()
-    canvas.save(buf, format="PNG", dpi=(150, 150))
+    _render_image(plan).save(buf, format="PNG", dpi=(150, 150))
     return buf.getvalue()
+
+
+def generate_pack(
+    event:       dict,
+    tiers:       list,
+    secondary:   list,
+    speakers:    list,
+    theme:       dict,
+    language:    str = "es",
+    renmad_logo: Image.Image | None = None,
+) -> dict:
+    """Return {"png": bytes, "pdf": bytes, "pptx": bytes} for one language."""
+    plan = _build_plan(event, tiers, secondary, speakers, theme, language, renmad_logo)
+    img  = _render_image(plan)
+
+    png = io.BytesIO()
+    img.save(png, format="PNG", dpi=(150, 150))
+
+    pdf = io.BytesIO()
+    img.convert("RGB").save(pdf, format="PDF", resolution=150.0)
+
+    out = {"png": png.getvalue(), "pdf": pdf.getvalue()}
+    try:
+        out["pptx"] = _render_pptx(plan)
+    except Exception:
+        out["pptx"] = None   # PPTX is best-effort; PNG/PDF always available
+    return out
 
 
 def generate_all_variants(
@@ -317,9 +473,9 @@ def generate_all_variants(
     language:    str = "es",
     renmad_logo: Image.Image | None = None,
 ) -> dict:
-    """Generate ES and EN variants. Returns {"es": bytes, "en": bytes}."""
+    """Generate ES and EN packs. Returns {"es": pack, "en": pack}."""
     return {
-        lang: generate(
+        lang: generate_pack(
             event=event, tiers=tiers, secondary=secondary,
             speakers=speakers, theme=theme, language=lang,
             renmad_logo=renmad_logo,
