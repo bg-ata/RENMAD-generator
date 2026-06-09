@@ -27,16 +27,34 @@ ANNOTATE = False   # when True, add a "highlight / why it matters" note to each 
 SUFFIX = ""        # output filename suffix (e.g. "_annotated")
 COVER_PHOTOS = []  # native editable speaker photos for the cover slide (px coords)
 LINK_INFO = None   # clickable hyperlink rect for the engagement (YouTube) slide
-NATIVE_NUMS = []   # editable number/text overlays (so figures can be typed over in PowerPoint)
+NATIVE_NUMS = []   # editable text overlays (so EVERY label can be typed over in PowerPoint)
+_CUR_SLIDE = 0     # deck index of the slide currently being drawn (set by each slide fn)
 
-# native-text overlay support: figures are NOT baked into the slide PNG; instead
-# they are added as real, editable PowerPoint text boxes (build_pptx) and painted
+# native-text overlay support: text is NOT baked into the slide PNG; instead every
+# label is added as a real, editable PowerPoint text box (build_pptx) and painted
 # back onto the on-disk PNG only for the in-app preview (_bake_preview).
 _KIND2FILE = {"black": "Montserrat-Black.ttf", "bold": "Montserrat-Bold.ttf",
               "semi": "Montserrat-SemiBold.ttf", "reg": "Inter-Regular.ttf"}
 _KIND2PPTX = {"black": ("Montserrat Black", False), "bold": ("Montserrat", True),
               "semi": ("Montserrat SemiBold", False), "reg": ("Inter", False)}
+_FILE2KIND = {"montserrat-black.ttf": "black", "montserrat-bold.ttf": "bold",
+              "montserrat-semibold.ttf": "semi", "inter-regular.ttf": "reg"}
 _MEASURE = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+
+def _slide(n):
+    global _CUR_SLIDE; _CUR_SLIDE = n
+
+def _kind_of(font):
+    base = os.path.basename(getattr(font, "path", "") or "").lower()
+    if base in _FILE2KIND:
+        return _FILE2KIND[base]
+    if "black" in base: return "black"
+    if "semibold" in base: return "semi"
+    if "bold" in base: return "bold"
+    return "reg"
+
+def _px_of(font):
+    return max(1, int(round(getattr(font, "size", 24 * SCALE) / SCALE)))
 
 def _font1(kind, px):
     return ImageFont.truetype(os.path.join(FONTS, _KIND2FILE[kind]), int(px))
@@ -46,7 +64,17 @@ def nnum(text, x, y, px, rgb, anchor, slide, kind="black", url=None):
     pixel size on the 1920-wide canvas; `slide` is the deck index; `anchor` is the
     PIL anchor used for the original layout (la / mm / rm / lm)."""
     NATIVE_NUMS.append({"slide": slide, "x": x, "y": y, "px": px, "text": str(text),
-                        "rgb": rgb, "anchor": anchor, "kind": kind, "url": url})
+                        "rgb": tuple(rgb), "anchor": anchor, "kind": kind, "url": url, "spacing": 4})
+
+def _num_bbox(e):
+    """Tight pixel bbox (l,t,r,b) of the figure on the 1920-wide canvas."""
+    f = _font1(e["kind"], e["px"])
+    anch = e["anchor"]
+    txt = e["text"]
+    if "\n" in txt and anch[1:] not in ("a", "m", "s"):
+        anch = anch[0] + "a"
+    bb = _MEASURE.textbbox((0, 0), txt, font=f, anchor=anch, spacing=e.get("spacing", 4))
+    return (e["x"] + bb[0], e["y"] + bb[1], e["x"] + bb[2], e["y"] + bb[3])
 
 def _num_bbox(e):
     """Tight pixel bbox (l,t,r,b) of the figure on the 1920-wide canvas."""
@@ -213,6 +241,19 @@ WEBINAR = {
 def canvas(bg=GREY):
     img = Image.new("RGB", (W*SCALE, H*SCALE), bg); return img, ImageDraw.Draw(img)
 def T(d, xy, text, font, fill, anchor="la", spacing=4):
+    # Register as an EDITABLE native PowerPoint text box (not baked into the PNG).
+    # Painted back onto the preview PNG later so the in-app preview is identical.
+    if text is None:
+        return
+    s = text if isinstance(text, str) else str(text)
+    if s == "":
+        return
+    NATIVE_NUMS.append({"slide": _CUR_SLIDE, "x": xy[0], "y": xy[1], "px": _px_of(font),
+                        "text": s, "rgb": tuple(fill), "anchor": anchor,
+                        "kind": _kind_of(font), "url": None, "spacing": spacing})
+
+def _draw_text(d, xy, text, font, fill, anchor="la", spacing=4):
+    """Bake text straight onto the supersampled canvas (used only for the preview)."""
     d.text((xy[0]*SCALE, xy[1]*SCALE), text, font=font, fill=fill, anchor=anchor, spacing=spacing*SCALE)
 def tw(d, text, font):
     b = d.textbbox((0,0), text, font=font); return (b[2]-b[0])/SCALE
@@ -386,7 +427,7 @@ def wrap_lines(d, text, font, maxw, max_lines=2):
     return lines[:max_lines]
 
 def slide_cover(st, lang):
-    s=STRINGS[lang]; img,d=canvas(GREY)
+    _slide(0); s=STRINGS[lang]; img,d=canvas(GREY)
     PX=1170
     rect(d,[PX,0,W,H],ORANGE)              # right orange block
     rect(d,[PX-7,0,PX,H],CHAR)             # charcoal divider
@@ -442,7 +483,7 @@ def hero_tile(d, box, num, label, fill=ORANGE, numc=WHITE, labc=(255,224,210)):
     T(d,(box[0]+54,box[1]+162),label,semi(22),labc,anchor="la")
 
 def slide_facts(st, lang):
-    s=STRINGS[lang]; img,d=canvas(GREY)
+    _slide(1); s=STRINGS[lang]; img,d=canvas(GREY)
     if not ANNOTATE: halftone(d, 1570, 66, 1885, 210, (220,221,223), step=30, r=4)
     kicker(d,70,64,"01 · "+s["sec_facts"],s["facts_title"])
     star(d, tw(d,s["facts_title"],black(40))+118, 96, 30, YELLOW)
@@ -469,7 +510,7 @@ def slide_facts(st, lang):
     footer(d,2,lang); return save(img,f"02_facts_{lang}.png")
 
 def slide_country(st, lang):
-    s=STRINGS[lang]; img,d=canvas(GREY)
+    _slide(2); s=STRINGS[lang]; img,d=canvas(GREY)
     kicker(d,70,64,"02 · "+s["sec_aud"],s["country_title"])
     draw_insight(d,"country")
     CY0,CY1=ctop(210),H-90
@@ -495,7 +536,7 @@ def slide_country(st, lang):
     footer(d,3,lang); return save(img,f"03_country_{lang}.png")
 
 def slide_industries(st, lang):
-    s=STRINGS[lang]; img,d=canvas(GREY)
+    _slide(3); s=STRINGS[lang]; img,d=canvas(GREY)
     kicker(d,70,64,"02 · "+s["sec_aud"],s["ind_title"])
     draw_insight(d,"industries")
     SHORT={"Equipment Supplier or Manufacturer":"Equipment Supplier",
@@ -530,7 +571,7 @@ def slide_companies(st, lang):
     footer(d,5,lang); return save(img,f"05_companies_{lang}.png")
 
 def slide_engagement(st, lang):
-    s=STRINGS[lang]; img,d=canvas(GREY); live=st["live"]
+    _slide(4); s=STRINGS[lang]; img,d=canvas(GREY); live=st["live"]
     kicker(d,70,64,"03 · "+s["sec_eng"],s["eng_title"])
     draw_insight(d,"engagement")
     lt=ctop(210); Hin=(H-90)-lt
@@ -571,7 +612,7 @@ def slide_engagement(st, lang):
     footer(d,5,lang); return save(img,f"06_engagement_{lang}.png")
 
 def slide_reach(st, lang):
-    s=STRINGS[lang]; img,d=canvas(GREY); em=WEBINAR["email"]
+    _slide(5); s=STRINGS[lang]; img,d=canvas(GREY); em=WEBINAR["email"]
     kicker(d,70,64,"04 · "+s["sec_reach"],s["reach_title"])
     star(d, tw(d,s["reach_title"],black(40))+110, 96, 28, YELLOW)
     draw_insight(d,"reach")
@@ -602,7 +643,7 @@ def slide_reach(st, lang):
     footer(d,6,lang); return save(img,f"07_reach_{lang}.png")
 
 def slide_titles(st, lang):
-    s=STRINGS[lang]; img,d=canvas(GREY)
+    _slide(6); s=STRINGS[lang]; img,d=canvas(GREY)
     kicker(d,70,64,"05 · "+s["sec_orgs"],s["orgs_title"])
     draw_insight(d,"orgs")
     if not ANNOTATE: T(d,(70,212),s["orgs_sub"],reg(18),MUTE,anchor="la")
@@ -617,7 +658,7 @@ def slide_titles(st, lang):
     footer(d,7,lang); return save(img,f"08_orgs_{lang}.png")
 
 def slide_contact(st, lang):
-    s=STRINGS[lang]; img,d=canvas(DEEP); ct=WEBINAR["contact"]
+    _slide(7); s=STRINGS[lang]; img,d=canvas(DEEP); ct=WEBINAR["contact"]
     rect(d,[0,0,18,H],ORANGE)
     RW=1180
     rect(d,[RW,0,W,H],WHITE)                                   # white right panel
@@ -736,18 +777,127 @@ def build_pptx(paths, name, photos=None, link=None, nums=None):
         tf = tb.text_frame; tf.word_wrap = False; tf.auto_size = None
         tf.vertical_anchor = MSO_ANCHOR.MIDDLE
         tf.margin_left = 0; tf.margin_right = 0; tf.margin_top = 0; tf.margin_bottom = 0
-        p = tf.paragraphs[0]; p.alignment = _ALIGN.get(ax, PP_ALIGN.LEFT)
-        run = p.add_run(); run.text = e["text"]
         fam, bd = _KIND2PPTX[e["kind"]]
-        run.font.size = Pt(e["px"] / 2.0); run.font.name = fam; run.font.bold = bd
-        run.font.color.rgb = RGBColor(*e["rgb"])
-        if e.get("url"):
-            run.hyperlink.address = e["url"]
-            run.font.underline = False
-            _rPr = run._r.get_or_add_rPr()
-            for _u in _rPr.findall(qn('a:uFill')) + _rPr.findall(qn('a:uLn')):
-                _rPr.remove(_u)
-    prs.save(os.path.join(OUT,name)); print("PPTX:",os.path.join(OUT,name))
+        lines = e["text"].split("\n")
+        for li, line in enumerate(lines):
+            para = tf.paragraphs[0] if li == 0 else tf.add_paragraph()
+            para.alignment = _ALIGN.get(ax, PP_ALIGN.LEFT)
+            run = para.add_run(); run.text = line
+            run.font.size = Pt(e["px"] / 2.0); run.font.name = fam; run.font.bold = bd
+            run.font.color.rgb = RGBColor(*e["rgb"])
+            if e.get("url"):
+                run.hyperlink.address = e["url"]
+                run.font.underline = False
+                _rPr = run._r.get_or_add_rPr()
+                for _u in _rPr.findall(qn('a:uFill')) + _rPr.findall(qn('a:uLn')):
+                    _rPr.remove(_u)
+    prs.save(os.path.join(OUT,name))
+    _embed_fonts(os.path.join(OUT,name))
+    print("PPTX:",os.path.join(OUT,name))
+
+
+# families used by the editable text -> the font file(s) that back each PowerPoint slot
+_EMBED_FONTS = [
+    ("Montserrat Black",    {"regular": "Montserrat-Black.ttf"}),
+    ("Montserrat SemiBold", {"regular": "Montserrat-SemiBold.ttf"}),
+    ("Montserrat",          {"regular": "Montserrat-Regular.ttf", "bold": "Montserrat-Bold.ttf"}),
+    ("Inter",               {"regular": "Inter-Regular.ttf"}),
+]
+
+def _embed_fonts(path):
+    """Embed the brand TrueType fonts in the .pptx so the editable text renders
+    correctly even on machines that don't have Montserrat / Inter installed.
+    Fully defensive: on any problem the original (non-embedded) file is kept."""
+    import zipfile, shutil
+    try:
+        from lxml import etree
+    except Exception as e:
+        print("font embed skipped (no lxml):", e); return
+    P = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+    RELNS = "http://schemas.openxmlformats.org/package/2006/relationships"
+    FONT_RT = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"
+
+    # gather the embed plan: only slots whose font file actually exists
+    plan, parts, idx = [], [], 1   # plan: (typeface, [(slot, partname, relid)])
+    for typeface, slots in _EMBED_FONTS:
+        got = []
+        for slot, fname in slots.items():
+            fpath = os.path.join(FONTS, fname)
+            if not os.path.exists(fpath):
+                continue
+            partname = "fonts/font%d.fntdata" % idx
+            relid = "rIdFont%d" % idx
+            got.append((slot, partname, relid)); parts.append((partname, fpath)); idx += 1
+        if got:
+            plan.append((typeface, got))
+    if not plan:
+        return
+
+    backup = path + ".bak"
+    shutil.copyfile(path, backup)
+    tmp = path + ".tmp"
+    try:
+        zin = zipfile.ZipFile(path, "r")
+        names = zin.namelist()
+        ct_xml = etree.fromstring(zin.read("[Content_Types].xml"))
+        # 1) content type for .fntdata
+        if not any(el.get("Extension") == "fntdata" for el in ct_xml if el.tag == "{%s}Default" % CT):
+            d = etree.SubElement(ct_xml, "{%s}Default" % CT)
+            d.set("Extension", "fntdata"); d.set("ContentType", "application/x-fontdata")
+        # 2) presentation.xml.rels — add a relationship per font part
+        rels = etree.fromstring(zin.read("ppt/_rels/presentation.xml.rels"))
+        for _typeface, got in plan:
+            for _slot, partname, relid in got:
+                rel = etree.SubElement(rels, "{%s}Relationship" % RELNS)
+                rel.set("Id", relid); rel.set("Type", FONT_RT); rel.set("Target", partname)
+        # 3) presentation.xml — embedTrueTypeFonts + <p:embeddedFontLst>
+        pres = etree.fromstring(zin.read("ppt/presentation.xml"))
+        pres.set("embedTrueTypeFonts", "1")
+        lst = etree.Element("{%s}embeddedFontLst" % P)
+        for typeface, got in plan:
+            ef = etree.SubElement(lst, "{%s}embeddedFont" % P)
+            f = etree.SubElement(ef, "{%s}font" % P); f.set("typeface", typeface)
+            for slot, _partname, relid in got:
+                sl = etree.SubElement(ef, "{%s}%s" % (P, slot)); sl.set("{%s}id" % R, relid)
+        # insert in schema order: right after <p:notesSz> (fallback: before defaultTextStyle/extLst/end)
+        notes = pres.find("{%s}notesSz" % P)
+        if notes is not None:
+            notes.addnext(lst)
+        else:
+            anchor = pres.find("{%s}defaultTextStyle" % P)
+            if anchor is not None: anchor.addprevious(lst)
+            else: pres.append(lst)
+
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+            for n in names:
+                if n == "[Content_Types].xml":
+                    zout.writestr(n, etree.tostring(ct_xml, xml_declaration=True, encoding="UTF-8", standalone=True))
+                elif n == "ppt/_rels/presentation.xml.rels":
+                    zout.writestr(n, etree.tostring(rels, xml_declaration=True, encoding="UTF-8", standalone=True))
+                elif n == "ppt/presentation.xml":
+                    zout.writestr(n, etree.tostring(pres, xml_declaration=True, encoding="UTF-8", standalone=True))
+                else:
+                    zout.writestr(zin.getinfo(n), zin.read(n))
+            for partname, fpath in parts:
+                with open(fpath, "rb") as fh:
+                    zout.writestr("ppt/" + partname, fh.read())
+        zin.close()
+        # validate: it must still open as a valid package
+        from pptx import Presentation as _P
+        _P(tmp)
+        shutil.move(tmp, path)
+        os.remove(backup)
+        print("fonts embedded: %d slots" % len(parts))
+    except Exception as e:
+        # restore the good, non-embedded file
+        for f in (tmp,):
+            try: os.remove(f)
+            except Exception: pass
+        try: shutil.move(backup, path)
+        except Exception: pass
+        print("font embed skipped:", e)
 
 def _bake_preview(lang, deck=None):
     """After the PPTX is saved, flatten the native speaker photos + YouTube text
@@ -764,7 +914,7 @@ def _bake_preview(lang, deck=None):
                 im = Image.open(deck[si]).convert("RGB"); dr = ImageDraw.Draw(im)
                 for e in items:
                     dr.text((e["x"], e["y"]), e["text"], font=_font1(e["kind"], e["px"]),
-                            fill=tuple(e["rgb"]), anchor=e["anchor"])
+                            fill=tuple(e["rgb"]), anchor=e["anchor"], spacing=e.get("spacing", 4))
                 im.save(deck[si])
             except Exception as ex:
                 print("preview nums skip", ex)
