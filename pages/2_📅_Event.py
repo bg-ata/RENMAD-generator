@@ -5,7 +5,7 @@
 Three-step flow:
   1. Pick or create the event (sidebar).
   2. Fill the event details + sponsors/logos (shared inputs).
-  3. Choose ONE output to make — Info graphic, Partner marketing, or Logo wall.
+  3. Choose ONE output to make — Ingo, Marketing partners, or Logo wall.
 
 Single "Role" field per row. The system infers tier/rank automatically:
   • "Diamond" / "Platinum" / "Global" / "Gold" / "Silver" / "Bronze" → "{TIER} SPONSOR"
@@ -299,9 +299,8 @@ def _renmad_logo_img() -> Image.Image | None:
 st.set_page_config(page_title="Event Image Generator", page_icon="📅", layout="wide")
 st.title("📅 Event Image Generator")
 st.caption(
-    "Flujo en 3 pasos:  **1)** elige o crea el evento (barra lateral)  ·  "
-    "**2)** rellena datos, sponsors y logos  ·  **3)** elige qué generar: "
-    "Info, Partner marketing o Logo wall."
+    "Elige el evento (barra lateral), elige **qué imagen quieres crear** "
+    "(Ingo · Marketing partners · Logo wall), rellena los datos y genera."
 )
 
 
@@ -408,9 +407,33 @@ logo_pool: dict[str, bytes] = st.session_state[pool_key]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 · EVENT DETAILS  (shared by every output)
+# STEP 1 · WHAT DO YOU WANT TO CREATE?  (pick first — this is the headline choice)
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("1 · Event details")
+st.header("1 · What do you want to create?")
+
+MODE_INGO    = "📸 Ingo"
+MODE_PARTNER = "🎨 Marketing partners"
+MODE_WALL    = "🖼️ Logo wall"
+
+mode = st.radio(
+    "Pick the image you want to make",
+    [MODE_INGO, MODE_PARTNER, MODE_WALL],
+    horizontal=True,
+    key="event_output_mode",
+    label_visibility="collapsed",
+)
+st.caption({
+    MODE_INGO:    "📸 **Ingo** — la infografía 1200×630 del evento (Evento · Ponente · Asistente · Sponsor), ES + EN.",
+    MODE_PARTNER: "🎨 **Marketing partners** — 4 banners por sponsor/partner, con el fondo del evento.",
+    MODE_WALL:    "🖼️ **Logo wall** — el muro de logos 1920px, sponsors ordenados por tier, ES + EN.",
+}[mode])
+st.caption("Rellena los datos del evento abajo; luego pulsa **generar** en tu opción al final.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 2 · EVENT DETAILS  (shared by every output)
+# ══════════════════════════════════════════════════════════════════════════════
+st.header("2 · Event details")
 
 c1, c2, c3 = st.columns([2, 1.2, 1])
 event_name = c1.text_input("Event name", key="ev_name",
@@ -558,7 +581,7 @@ with st.expander("🖼️ Background photo (optional — used by Partner-marketi
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 · SPONSORS & LOGOS  (shared by every output)
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("2 · Sponsors & logos")
+st.header("3 · Sponsors & logos")
 
 # ── Logo pool ────────────────────────────────────────────────────────────────
 st.markdown("**Logo pool** — sube todos los logos del evento aquí; luego asignas cada uno a una empresa.")
@@ -875,34 +898,17 @@ _eid_i = active_event_id or "new"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 3 · WHAT DO YOU WANT TO MAKE?
+# STEP 4 · GENERATE  (only the output you picked in step 1 renders below)
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("3 · What do you want to make?")
-
-MODE_INFO    = "📸 Info graphic"
-MODE_PARTNER = "🎨 Partner marketing"
-MODE_WALL    = "🖼️ Logo wall"
-
-mode = st.radio(
-    "Choose what to generate",
-    [MODE_INFO, MODE_PARTNER, MODE_WALL],
-    horizontal=True,
-    key="event_output_mode",
-    label_visibility="collapsed",
-)
-st.caption({
-    MODE_INFO:    "📸 **Info graphic** — la infografía 1200×630 del evento (Evento · Ponente · Asistente · Sponsor), ES + EN.",
-    MODE_PARTNER: "🎨 **Partner marketing** — 4 banners por sponsor/partner, con el fondo elegido arriba.",
-    MODE_WALL:    "🖼️ **Logo wall** — el muro de logos 1920px, sponsors ordenados por tier, ES + EN.",
-}[mode])
 st.divider()
+st.header(f"4 · Generate · {mode}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# MODE: Partner marketing
+# MODE: Marketing partners
 # ──────────────────────────────────────────────────────────────────────────────
 if mode == MODE_PARTNER:
-    st.subheader("🎨 Partner marketing pack")
+    st.subheader("🎨 Marketing partners — banner pack")
 
     generate_btn = st.button(
         "🎨 Generate marketing pack", type="primary",
@@ -980,10 +986,10 @@ if mode == MODE_PARTNER:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# MODE: Info graphic (Ingo — 1200×630)
+# MODE: Ingo (1200×630)
 # ──────────────────────────────────────────────────────────────────────────────
-elif mode == MODE_INFO:
-    st.subheader("📸 Event Info graphic — 1 200 × 630 px")
+elif mode == MODE_INGO:
+    st.subheader("📸 Event Ingo — 1 200 × 630 px")
     st.caption(
         "Infografía del evento con fondo blanco y círculo vacío para la foto del usuario. "
         "Se generan 8 formatos: 4 ES + 4 EN (Evento · Ponente · Asistente · Sponsor)."
@@ -1006,7 +1012,7 @@ elif mode == MODE_INFO:
         {"num": "", "label": "NETWORKING HOURS"},
     ])
 
-    st.markdown("**Event stats** — shown as icons + numbers in the Info graphic:")
+    st.markdown("**Event stats** — shown as icons + numbers in the Ingo:")
     is1, is2, is3 = st.columns(3)
 
     with is1:
@@ -1056,7 +1062,7 @@ elif mode == MODE_INFO:
 
     ig1, ig2 = st.columns([1, 3])
     gen_ingo_btn = ig1.button(
-        "📸 Generate all Info graphics", type="primary",
+        "📸 Generate all Ingos", type="primary",
         use_container_width=True,
         disabled=not event_name,
     )
@@ -1082,7 +1088,7 @@ elif mode == MODE_INFO:
 
         _theme = THEMES[theme_key]
 
-        with st.spinner("Generating 8 Info graphics (ES + EN)…"):
+        with st.spinner("Generating 8 Ingos (ES + EN)…"):
             try:
                 _ingos_es = _gen_all_ingos(
                     event=_event_es, stats=ingo_stats_current, tiers=_tiers,
@@ -1098,7 +1104,7 @@ elif mode == MODE_INFO:
                 st.session_state["_last_ingos_en"]  = _ingos_en
                 st.session_state["_last_ingo_name"] = _slugify(event_name)
             except Exception as _ingo_err:
-                st.error(f"Info graphic generation failed: {_ingo_err}")
+                st.error(f"Ingo generation failed: {_ingo_err}")
                 import traceback
                 st.code(traceback.format_exc())
 
@@ -1150,7 +1156,7 @@ elif mode == MODE_INFO:
                 with open(os.path.join(_ingo_dir, f"ingo{_suffix}_en.png"), "wb") as _fh:
                     _fh.write(_b)
                 _saved_count += 1
-            st.success(f"💾 Saved {_saved_count} Info graphics to `{_ingo_dir}`")
+            st.success(f"💾 Saved {_saved_count} Ingos to `{_ingo_dir}`")
 
         if _ingos_es:
             st.markdown("**🇪🇸 Español**")
