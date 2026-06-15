@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RENMAD Timed Agenda Generator</title>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Open+Sans:ital,wght@0,400;0,600;1,400&display=swap">
+<script src="logos.js"></script>
+<script src="seed.js"></script>
+<style>
+  :root{ --accent:#E84830; --bg:#f6f7f9; --line:#e4e6ea; --ink:#1C2529; --muted:#7a818a; --side:#fbfbfc; }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:'Segoe UI',Inter,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;display:flex}
+  button{font-family:inherit;cursor:pointer}
+  input,textarea,select{font-family:inherit;font-size:13px;color:var(--ink)}
+  textarea{resize:vertical}
+  .hidden{display:none!important}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px 11px;font-size:13px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .btn:hover{background:#f1f2f4}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  .btn.primary:hover{filter:brightness(.94)}
+  .btn.ghost{background:transparent}
+  select.mini,input.mini{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff;width:100%}
+
+  /* Sidebar */
+  aside{width:240px;flex:0 0 240px;background:var(--side);border-right:1px solid var(--line);height:100vh;position:sticky;top:0;overflow:auto;padding:16px 14px;display:flex;flex-direction:column;gap:4px}
+  aside .brand{font-weight:800;color:var(--accent);font-size:18px;line-height:1.05}
+  aside .brand small{display:block;font-weight:600;color:var(--muted);font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-top:2px}
+  aside .evtitle{font-weight:700;font-size:13.5px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;margin:10px 0 2px;cursor:pointer}
+  aside .evtitle:hover{border-color:var(--accent)}
+  aside .evtitle .ph{color:var(--muted);font-weight:400}
+  aside .seclabel{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:14px 4px 4px}
+  .navitem{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;cursor:pointer;color:var(--ink);border:1px solid transparent}
+  .navitem:hover{background:#eef0f3}
+  .navitem.active{background:#fff;border-color:var(--line);font-weight:700}
+  .navitem .dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--accent)}
+  .navitem .sub{font-size:11px;color:var(--muted);font-weight:400}
+  .navitem .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .navitem .navdel{border:none;background:none;color:var(--muted);font-size:12px;opacity:0;cursor:pointer;padding:2px 5px;border-radius:5px;flex:0 0 auto}
+  .navitem:hover .navdel{opacity:.65}
+  .navitem .navdel:hover{opacity:1;background:#fdecea;color:#c0392b}
+  .navadd{display:flex;gap:6px;margin-top:6px}
+  .navadd button{flex:1;border:1px dashed var(--line);background:#fff;border-radius:8px;padding:7px;color:var(--muted);font-size:12px}
+  .navadd button:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* Main */
+  main{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:auto}
+  .topbar{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line);padding:9px 18px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .topbar .vtitle{font-weight:800;font-size:17px}
+  .topbar .spacer{flex:1}
+  .langbar{display:flex;align-items:center;gap:8px;background:#fff;border-bottom:1px solid var(--line);padding:8px 18px;flex-wrap:wrap}
+  .langbar .lb-lab{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .langbar select{border:1px solid var(--accent);border-radius:7px;padding:6px 9px;background:#fff;font-weight:600}
+  .langbar select.th{border-color:var(--line)}
+  .content{padding:20px;max-width:1280px;width:100%}
+
+  /* Overview */
+  .ovgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px;max-width:760px}
+  .ovgrid .full{grid-column:1 / 3}
+  .fld label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .logobox{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff;max-width:760px;margin-top:4px}
+  .logobox img{height:54px;max-width:240px}
+
+  /* Day header */
+  .day-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .day-head input{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff}
+  .day-head .dlabel{font-weight:800;font-size:16px;min-width:140px}
+  .day-head .dlabel2{font-weight:600;min-width:120px}
+  .day-head .ddate{width:140px}
+  .day-head .dstart{width:80px;text-align:center}
+  .day-sum{margin-left:auto;color:var(--accent);font-weight:700;font-size:13px;white-space:nowrap}
+
+  /* Tracks */
+  .tracks{display:flex;gap:16px;align-items:flex-start}
+  .track{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:#fff;padding:4px 8px 10px}
+  .track.solo{border:none;background:transparent;padding:0}
+  .track-head{display:flex;align-items:center;gap:8px;padding:8px 6px 4px}
+  .track-head input{flex:1;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-weight:700}
+  .track-head .xtrk{border:1px solid var(--line);background:#fff;border-radius:6px;width:26px;height:26px;color:var(--muted)}
+  .grid-head{display:grid;grid-template-columns:120px 1fr 1fr 230px;padding:6px 10px 6px 34px;font-size:11px;letter-spacing:.04em;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--line)}
+
+  .blocks{padding:4px 0}
+  .row{position:relative;display:grid;grid-template-columns:120px 1fr 1fr 230px;gap:12px;padding:12px 8px 12px 30px;border-radius:10px;margin:6px 0;border:1px solid var(--line);background:#fff}
+  .row:hover{box-shadow:0 1px 6px rgba(0,0,0,.05)}
+  .bar{position:absolute;left:12px;top:14px;bottom:14px;width:6px;border-radius:4px}
+  .handle{position:absolute;left:0;top:50%;transform:translateY(-50%);color:#c2c6cc;cursor:grab;font-size:13px;user-select:none;padding:3px}
+  .handle:hover{color:var(--muted)}
+  .tcell{display:flex;flex-direction:column;gap:6px}
+  .startline{display:flex;align-items:center;gap:4px}
+  .startline .stime{width:56px;text-align:center;border:1px solid var(--line);border-radius:6px;padding:4px;font-weight:800;font-size:14px}
+  .startline .stime:focus{outline:none;border-color:var(--accent)}
+  .startline .step{display:flex;flex-direction:column;gap:2px}
+  .startline .step button{width:18px;height:13px;line-height:1;font-size:8px;border:1px solid var(--line);background:#fff;border-radius:3px;color:var(--muted);padding:0;display:flex;align-items:center;justify-content:center}
+  .startline .step button:hover{color:var(--ink);background:#f1f2f4}
+  .endline{color:var(--muted);font-size:11px;white-space:nowrap;margin-top:1px}
+  .durline{display:flex;align-items:center;gap:5px}
+  .durline input{width:50px;text-align:center;border:1px solid var(--line);border-radius:6px;padding:4px}
+  .durline span{font-size:11px;color:var(--muted)}
+  .tcell select{border:1px solid var(--line);border-radius:6px;padding:5px;font-size:12px;background:#fff}
+  .cell{display:flex;flex-direction:column;gap:5px}
+  .cell .title{font-weight:700;border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff}
+  .cell .title:focus{outline:none;border-color:var(--accent)}
+  .cell .desc{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff;min-height:38px;color:#3a4148;font-size:12.5px;line-height:1.4}
+  .cell .desc:focus{outline:none;border-color:var(--accent)}
+  .cell.spkcell .spk{border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#fff7f3;font-size:12px;min-height:78px;height:100%}
+  .cell.spkcell .spk:focus{outline:none;border-color:var(--accent)}
+  .cell.spkcell .spk::placeholder{color:#cdb3a8}
+  .langtag{font-size:10px;letter-spacing:.04em;color:var(--muted);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+  .langtag .tr{color:var(--accent);cursor:pointer;font-weight:700;text-transform:none}
+  .langtag .tr:hover{text-decoration:underline}
+  .rowtools{position:absolute;right:8px;top:8px;display:flex;gap:4px;opacity:.55;transition:.12s}
+  .row:hover .rowtools{opacity:1}
+  .rowtools button{border:1px solid var(--line);background:#fff;border-radius:6px;width:28px;height:24px;font-size:16px;color:var(--muted);display:flex;align-items:center;justify-content:center}
+  .rowtools button:hover{color:var(--ink);background:#f1f2f4}
+  .rowmenu{position:absolute;right:8px;top:36px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 6px 22px rgba(0,0,0,.16);padding:5px;min-width:200px}
+  .rowmenu button{display:block;width:100%;text-align:left;border:none;background:none;padding:7px 10px;border-radius:6px;font-size:13px;color:var(--ink)}
+  .rowmenu button:hover{background:#f1f2f4}
+  .rowmenu button:disabled{color:#c2c6cc}
+  .rowmenu button.danger{color:#c0392b}
+  .rowmenu .mlabel{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:6px 10px 2px}
+  .rowmenu .msep{height:1px;background:var(--line);margin:5px 4px}
+  .insrow{height:16px;display:flex;align-items:center;padding-left:8px;margin:-4px 0}
+  .insrow button{width:20px;height:20px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--muted);font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;opacity:.5}
+  .insrow button:hover{border-color:var(--accent);color:var(--accent);opacity:1;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .add{border:1px dashed var(--line);background:#fff;border-radius:9px;padding:9px 14px;color:var(--muted);font-size:13px;margin-top:8px}
+  .add:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* Day wall */
+  .wallbox{border:1px dashed var(--line);border-radius:10px;padding:12px;margin-top:14px;background:#fff}
+  .wallbox .wt{font-size:12px;color:var(--muted);margin-bottom:8px}
+  .wallbox img{max-width:100%;max-height:170px;border:1px solid var(--line);border-radius:6px}
+
+  /* Modal */
+  .modalbg{position:fixed;inset:0;background:rgba(20,25,30,.45);z-index:60;display:flex;align-items:center;justify-content:center}
+  .modal{background:#fff;border-radius:12px;width:520px;max-width:92vw;max-height:84vh;overflow:auto;padding:18px}
+  .modal h3{margin:0 0 12px}
+  .prj{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:10px;margin:7px 0}
+  .prj .nm{flex:1}
+  .prj .nm b{display:block}
+  .prj .nm small{color:var(--muted)}
+
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:80;opacity:0;transition:.2s;pointer-events:none}
+  .toast.show{opacity:1}
+  /* Home / projects */
+  .homehead{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .homehead h2{margin:0;font-size:21px}
+  .homehead .count{color:var(--muted);font-weight:400;font-size:14px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+  .card{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;cursor:pointer;transition:box-shadow .12s}
+  .card:hover{box-shadow:0 4px 16px rgba(0,0,0,.09)}
+  .card .cbar{height:7px}
+  .card .cbody{padding:12px 14px 4px;flex:1}
+  .card .cname{font-weight:800;font-size:15px;line-height:1.2}
+  .card .cname .cnow{color:var(--accent);font-weight:700;font-size:11px}
+  .card .cmeta{color:var(--muted);font-size:12px;margin-top:4px}
+  .card .cact{display:flex;gap:6px;padding:10px 14px 14px;align-items:center}
+  .card .cact .btn.primary{flex:1;justify-content:center}
+  .empty{color:var(--muted);padding:36px;border:1px dashed var(--line);border-radius:12px;text-align:center;font-size:14px}
+  .htabs{display:flex;gap:6px;margin-bottom:14px}
+  .htab{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;color:var(--muted)}
+  .htab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tbanner{background:#fff7f3;border:1px solid #f3d3c6;color:#7a5240;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.45;margin-bottom:16px}
+  .card .synctag{font-size:11px;color:#2e7d32;font-weight:700}
+  .card .extag{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  .card.example{opacity:.72}
+</style>
+</head>
+<body>
+<aside>
+  <div class="brand">RENMAD Timed Agenda<small>Generator</small></div>
+  <div class="evtitle" id="evTitleSide" title="Edit in Overview"></div>
+  <div id="nav"></div>
+</aside>
+
+<main>
+  <div class="topbar">
+    <span class="vtitle" id="vtitle">Overview</span>
+    <span class="spacer"></span>
+    <button class="btn" id="btnSave">💾 Save</button>
+    <span id="syncDot" style="font-size:12px;font-weight:600;margin-left:2px;display:none"></span>
+    <button class="btn" id="btnOpen">📂 Projects</button>
+    <button class="btn ghost" id="btnNew">＋ New</button>
+    <button class="btn" id="btnWord">📝 Word</button>
+    <button class="btn" id="btnDocx">📄 .docx</button>
+    <button class="btn primary" id="btnPdf">📥 PDF</button>
+    <button class="btn" id="btnPrint">🖨 Print</button>
+  </div>
+  <div class="langbar">
+    <span class="lb-lab">Agenda languages</span>
+    <select id="langA"></select><span style="color:var(--muted)">↔</span><select id="langB"></select>
+    <button class="btn" id="btnTrAll" style="margin-left:6px">🌐 Translate all →</button>
+    <button class="btn" id="btnCheck" style="margin-left:6px">🔤 Check spelling</button>
+    <span class="spacer"></span>
+    <span class="lb-lab">Theme</span>
+    <select id="theme" class="th"></select>
+  </div>
+  <div class="content" id="content"></div>
+</main>
+
+<input type="file" id="fileLoad" accept="application/json" class="hidden">
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const LOGOS = window.RENMAD_LOGOS || {};
+const THEMES = {
+  almacenamiento:{name:"Almacenamiento / Storage", hex:"#E84830", logo:"almacenamiento"},
+  datacenters:{name:"Datacenters", hex:"#29ACE3", logo:"datacenters"},
+  hidrogeno:{name:"Hidrógeno / Hydrogen", hex:"#3E8C28", logo:"hidrogeno"},
+  biometano:{name:"Biometano / Gas", hex:"#5C3285", logo:"biometano"},
+  invest:{name:"Invest", hex:"#E84830", logo:"invest"},
+  chile:{name:"RENMAD Chile", hex:"#E84830", logo:"chile"},
+  datacenters_italia:{name:"Datacenters Italia", hex:"#29ACE3", logo:"datacenters_italia"},
+  ata:{name:"ATA Insights", hex:"#FF4A00", logo:"ata"},
+};
+const LANGS = {en:"English",es:"Español",it:"Italiano",pl:"Polski",pt:"Português",fr:"Français",de:"Deutsch"};
+const TYPES = {
+  session:{label:"Session", color:"#E0392B"}, content:{label:"Content", color:"#2F80ED"},
+  panel:{label:"Panel", color:"#EB5757"}, break:{label:"Break", color:"#F2C94C"},
+  exercise:{label:"Exercise", color:"#27AE60"}, networking:{label:"Networking", color:"#9B51E0"},
+};
+const LABELS = {
+  en:{time:"Time",prog:"Programme",spk:"Speakers",spons:"Sponsors & Partners",mod:"Moderator"},
+  es:{time:"Hora",prog:"Programa",spk:"Ponentes",spons:"Patrocinadores y colaboradores",mod:"Moderador/a"},
+  it:{time:"Ora",prog:"Programma",spk:"Relatori",spons:"Sponsor e partner",mod:"Moderatore/trice"},
+  pl:{time:"Godzina",prog:"Program",spk:"Prelegenci",spons:"Sponsorzy i partnerzy",mod:"Moderator/ka"},
+  pt:{time:"Hora",prog:"Programa",spk:"Oradores",spons:"Patrocinadores e parceiros",mod:"Moderador(a)"},
+  fr:{time:"Heure",prog:"Programme",spk:"Intervenants",spons:"Sponsors et partenaires",mod:"Modérateur/trice"},
+  de:{time:"Zeit",prog:"Programm",spk:"Referenten",spons:"Sponsoren & Partner",mod:"Moderator/in"},
+};
+const lab = c => LABELS[(c||"en").split("-")[0]] || LABELS.en;
+
+// ── State ───────────────────────────────────────────────────────────────────
+let S, view={type:"overview"}, curId=null;
+const uid=()=>Math.random().toString(36).slice(2,9);
+function blankBlock(){ return {id:uid(),dur:20,type:"session",fixed:"",aT:"",aD:"",bT:"",bD:"",spk:""}; }
+function blankTrack(na,nb){ return {id:uid(),na:na||"",nb:nb||"",start:"",blocks:[blankBlock()]}; }
+function blankDay(n){ return {id:uid(),la:"Day "+n,lb:"Day "+n,date:"",start:"09:00",wallImg:"",tracks:[blankTrack()]}; }
+function blankState(){ return {themeKey:"almacenamiento",langA:"en",langB:"es",titleA:"",titleB:"",locA:"",locB:"",ctaA:"",ctaB:"",ctaUrlA:"",ctaUrlB:"",contactName:"Belén Gallego",contactEmail:"belen@atainsights.com",headerLogo:"",wallImg:"",days:[blankDay(1)],parking:[]}; }
+
+// ── Time helpers ────────────────────────────────────────────────────────────
+function parseMin(s){ if(!s) return null; const m=String(s).match(/(\d{1,2})\s*[:.h]\s*(\d{2})/); if(m) return (+m[1])*60+(+m[2]); const m2=String(s).match(/(\d{1,2})/); return m2?(+m2[1])*60:null; }
+function fmtMin(x){ x=((x%1440)+1440)%1440; return String(Math.floor(x/60)).padStart(2,"0")+":"+String(x%60).padStart(2,"0"); }
+function computeTrack(day,track){ const bs=track.blocks; let clock=parseMin(track.start); if(clock==null) clock=parseMin(day.start); if(clock==null && bs[0]) clock=parseMin(bs[0].fixed); if(clock==null) clock=540; bs.forEach((b,i)=>{ const f=parseMin(b.fixed); if(i>0 && f!=null) clock=f; b._s=clock; b._e=clock+(+b.dur||0); clock=b._e; }); }
+function computeAll(day){ day.tracks.forEach(t=>computeTrack(day,t)); }
+function daySummary(day){ computeAll(day); let st=[],en=[],tot=0; day.tracks.forEach(t=>{ t.blocks.forEach(b=>{st.push(b._s);en.push(b._e);}); tot=Math.max(tot,t.blocks.reduce((a,b)=>a+(+b.dur||0),0)); }); if(!st.length) return ""; const span=fmtMin(Math.min(...st))+" → "+fmtMin(Math.max(...en)); const h=Math.floor(tot/60),m=tot%60,dur=(h?h+"h ":"")+((m||!h)?m+"m":""); return "⏱ "+span+(day.tracks.length>1?("  ·  "+day.tracks.length+" tracks"):("  ·  "+dur.trim())); }
+function daySpan(day){ computeAll(day); let st=[],en=[]; day.tracks.forEach(t=>t.blocks.forEach(b=>{st.push(b._s);en.push(b._e);})); return st.length?fmtMin(Math.min(...st))+"–"+fmtMin(Math.max(...en)):""; }
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const $=id=>document.getElementById(id);
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function dayById(id){ return S.days.find(d=>d.id===id); }
+function headerLogo(){ return S.headerLogo || LOGOS[THEMES[S.themeKey].logo] || LOGOS.renmad || ""; }
+
+// ── Sidebar ─────────────────────────────────────────────────────────────────
+function renderSidebar(){
+  $("evTitleSide").innerHTML = S.titleA ? esc(S.titleA) : '<span class="ph">Untitled event — click Overview</span>';
+  let h=`<div class="navitem ${view.type==="home"?"active":""}" data-view="home"><span>🏠</span><span class="nm">Home — all agendas</span></div>
+    <div class="seclabel">This event</div>
+    <div class="navitem ${view.type==="overview"?"active":""}" data-view="overview"><span>📋</span><span class="nm">Event details</span></div>
+    <div class="navitem ${view.type==="footer"?"active":""}" data-view="footer"><span>🧾</span><span class="nm">Footer &amp; call to action</span></div>
+    <div class="seclabel">Programme</div>`;
+  S.days.forEach((d,i)=>{ const active=view.type==="day"&&view.id===d.id; const tr=d.tracks.length>1?` <span class="sub">· ${d.tracks.length} tracks</span>`:"";
+    h+=`<div class="navitem ${active?"active":""}" data-view="day" data-id="${d.id}"><span class="dot"></span><span class="nm">${esc(d.la||("Day "+(i+1)))}${d.date?` <span class="sub">· ${esc(d.date)}</span>`:""}${tr}</span><button class="navdel" data-del="${d.id}" title="Delete this day">🗑</button></div>`; });
+  h+=`<div class="navadd"><button data-add="day">➕ Add day</button></div>
+     <div class="seclabel">Set aside</div>
+     <div class="navitem ${view.type==="parking"?"active":""}" data-view="parking"><span>🅿️</span><span class="nm">Parking${(S.parking&&S.parking.length)?` <span class="sub">· ${S.parking.length}</span>`:""}</span></div>`;
+  $("nav").innerHTML=h;
+  $("nav").querySelectorAll(".navitem").forEach(el=>{ el.onclick=()=>{ view=el.dataset.view==="day"?{type:"day",id:el.dataset.id}:{type:el.dataset.view}; render(); }; });
+  $("nav").querySelector("[data-add=day]").onclick=()=>{ const d=blankDay(S.days.length+1); S.days.push(d); view={type:"day",id:d.id}; render(); autosave(); };
+  $("nav").querySelectorAll(".navdel").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.del; if(S.days.length<=1){ toast("You need at least one day."); return; } const d=dayById(id); if(confirm('Delete "'+((d&&d.la)||"this day")+'" and all its sessions?')){ S.days=S.days.filter(x=>x.id!==id); if(view.type==="day"&&view.id===id) view={type:"home"}; render(); autosave(); toast("Day deleted"); } });
+  $("evTitleSide").onclick=()=>{ view={type:"overview"}; render(); };
+}
+
+// ── Render ──────────────────────────────────────────────────────────────────
+function render(){
+  if(!THEMES[S.themeKey]) S.themeKey="almacenamiento";
+  if(!LANGS[S.langA]) S.langA="en"; if(!LANGS[S.langB]) S.langB="es";
+  document.documentElement.style.setProperty("--accent", THEMES[S.themeKey].hex);
+  $("btnTrAll").textContent="🌐 Translate all → "+LANGS[S.langB];
+  fillSelect($("theme"),THEMES,S.themeKey,(k,v)=>v.name);
+  fillSelect($("langA"),LANGS,S.langA,(k,v)=>v); fillSelect($("langB"),LANGS,S.langB,(k,v)=>v);
+  renderSidebar();
+  if(view.type==="day" && !dayById(view.id)) view={type:"overview"};
+  const c=$("content");
+  if(view.type==="home"){ $("vtitle").textContent="Home"; renderHome(c); }
+  else if(view.type==="overview"){ $("vtitle").textContent="Event details"; renderOverview(c); }
+  else if(view.type==="footer"){ $("vtitle").textContent="Footer & call to action"; renderFooter(c); }
+  else if(view.type==="parking"){ $("vtitle").textContent="Parking"; renderParking(c); }
+  else { const d=dayById(view.id); $("vtitle").textContent=d.la||"Day"; renderDay(c,d); }
+}
+
+function renderFooter(c){
+  const hex=THEMES[S.themeKey].hex;
+  c.innerHTML=`
+    <p style="color:var(--muted);margin:0 0 14px">The logo wall and this footer show at the <b>bottom of every exported agenda</b> (PDF & Word).</p>
+    <div class="fld" style="margin-bottom:16px"><label>🏷️ Logo wall image (sponsors & partners) — make it in the image generator, then upload here. Appears just above the footer.</label>
+      <div class="logobox">
+        <div id="fWallThumb" style="min-width:150px">${S.wallImg?`<img src="${S.wallImg}" style="max-height:90px;max-width:360px">`:'<span style="color:var(--muted);font-size:12px">No logo wall uploaded yet</span>'}</div>
+        <div><label class="btn">🖼️ ${S.wallImg?"Replace":"Upload"} logo wall<input type="file" id="fWallUp" accept="image/*" class="hidden"></label>
+        ${S.wallImg?'<button class="btn ghost" id="fWallDel" style="margin-left:6px">🗑 Remove</button>':''}</div>
+      </div>
+    </div>
+    <div class="ovgrid">
+      <div class="fld full"><label>Call to action (optional) — coloured band</label><input class="mini" id="fCTA" value="${esc(S.ctaA)}" placeholder="e.g. Register for free at renmad.com" spellcheck="true"></div>
+      <div class="fld"><label>CTA link — ${LANGS[S.langA]}</label><input class="mini" id="fCTAurlA" value="${esc(S.ctaUrlA)}" placeholder="https://www.renmad.com/…"></div>
+      <div class="fld"><label>CTA link — ${LANGS[S.langB]} (if different)</label><input class="mini" id="fCTAurlB" value="${esc(S.ctaUrlB)}" placeholder="https://www.renmad.com/…"></div>
+      <div class="fld"><label>Contact name</label><input class="mini" id="fContact" value="${esc(S.contactName)}" placeholder="Belén Gallego"></div>
+      <div class="fld"><label>Contact email</label><input class="mini" id="fEmail" value="${esc(S.contactEmail)}" placeholder="belen@atainsights.com"></div>
+    </div>
+    <div style="margin-top:20px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px">Live preview (bottom of the agenda)</div>
+      <div id="fPrev" style="max-width:700px;border:1px solid var(--line);border-radius:8px;padding:14px"></div></div>`;
+  const upd=()=>{ const cta=(S.ctaA||"").trim(), url=(S.ctaUrlA||"").trim(); const cname=(S.contactName||"").trim(), cmail=(S.contactEmail||"").trim();
+    const wall=S.wallImg?`<img src="${S.wallImg}" style="max-width:100%;max-height:90px;display:block;margin-bottom:12px">`:"";
+    const band=cta?`<div style="background:${hex};color:#fff;font-weight:800;text-align:center;padding:9px 14px;border-radius:5px">${esc(cta)}${url?" &nbsp;→&nbsp; "+esc(url):""}</div>`:`<div style="color:var(--muted);font-size:12px;font-style:italic">No call-to-action band</div>`;
+    const contact=[cname,cmail,"atainsights.com"].filter(Boolean).join(" · ");
+    $("fPrev").innerHTML=wall+band+`<div style="font-size:11px;color:#888;margin-top:12px;border-top:1px solid #eee;padding-top:8px">${esc(contact)}</div>`; };
+  $("fWallUp").onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ S.wallImg=rd.result; render(); autosave(); }; rd.readAsDataURL(f); };
+  if($("fWallDel")) $("fWallDel").onclick=()=>{ S.wallImg=""; render(); autosave(); };
+  const bind=(id,key)=>{ $(id).oninput=e=>{ S[key]=e.target.value; autosave(); upd(); }; };
+  bind("fCTA","ctaA"); bind("fCTAurlA","ctaUrlA"); bind("fCTAurlB","ctaUrlB"); bind("fContact","contactName"); bind("fEmail","contactEmail");
+  upd();
+}
+
+function renderOverview(c){
+  c.innerHTML=`
+    <div class="ovgrid">
+      <div class="fld full"><label>Event title (appears on the agenda)</label><input class="mini" id="ovTA" value="${esc(S.titleA)}" placeholder="e.g. RENMAD Almacenamiento 2026" spellcheck="true"></div>
+      <div class="fld full"><label>Location / dates</label><input class="mini" id="ovLA" value="${esc(S.locA)}" placeholder="Madrid · 15–16 Sep 2026" spellcheck="true"></div>
+    </div>
+    <div class="fld" style="margin-top:16px"><label>Header logo — shows on the exported agenda (auto from the chosen theme)</label>
+      <div class="logobox"><img id="ovLogo" src="${headerLogo()}" alt="logo">
+        <div><label class="btn">🖼️ Change logo (upload)<input type="file" id="ovLogoUp" accept="image/*" class="hidden"></label>
+        <button class="btn ghost" id="ovLogoReset" style="margin-left:6px">↺ Reset to theme logo</button>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">${S.headerLogo?"Using a custom logo. Click “Change logo” to pick another, or reset.":"Using the theme logo. Change the theme (top bar) or upload a custom one."}</div></div>
+      </div>
+    </div>
+    <p style="color:var(--muted);margin-top:18px">Add days in the sidebar, then open each to build its programme. <b>Spanish/English titles are translated per session</b>; timings, dates and speakers are shared across both languages.</p>`;
+  $("ovTA").oninput=e=>{ S.titleA=e.target.value; renderSidebar(); autosave(); };
+  $("ovLA").oninput=e=>{ S.locA=e.target.value; autosave(); };
+  $("ovLogoUp").onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ S.headerLogo=rd.result; render(); autosave(); }; rd.readAsDataURL(f); };
+  $("ovLogoReset").onclick=()=>{ S.headerLogo=""; render(); autosave(); };
+}
+
+let homeTab="mine";
+function homeTabs(){ return `<div class="htabs"><button class="htab ${homeTab==='mine'?'on':''}" data-tab="mine">📁 My agendas</button><button class="htab ${homeTab==='team'?'on':''}" data-tab="team">👥 Team library</button></div>`; }
+function bindHomeTabs(c){ c.querySelectorAll(".htab").forEach(b=>b.onclick=()=>{ homeTab=b.dataset.tab; render(); }); }
+function teamCard(name,owner,when,th,openId,example){
+  return `<div class="card ${example?'example':''}" ${openId?`data-open="${openId}"`:''}>
+    <div class="cbar" style="background:${th.hex}"></div>
+    <div class="cbody"><div class="cname">${esc(name||'Untitled')} ${example?'<span class="extag">example</span>':'<span class="synctag">✓ synced</span>'}</div>
+      <div class="cmeta">👤 ${esc(owner)} · ${esc(when)}</div>
+      <div class="cmeta">Shared with the team</div></div>
+    <div class="cact"><button class="btn primary">Open</button></div></div>`;
+}
+function renderHome(c){
+  if(homeTab==="team"){ return renderHomeTeam(c); }
+  const arr=loadProjects().sort((a,b)=>b.updated-a.updated);
+  const cards = arr.length ? arr.map(p=>{
+    const d=p.data||{}; const th=THEMES[d.themeKey]||THEMES.almacenamiento;
+    const langs=((d.langA||"en").toUpperCase())+"/"+((d.langB||"es").toUpperCase());
+    const nd=(d.days&&d.days.length)||0;
+    return `<div class="card" data-open="${p.id}">
+      <div class="cbar" style="background:${th.hex}"></div>
+      <div class="cbody">
+        <div class="cname">${esc(p.name||"Untitled event")}${p.id===curId?' <span class="cnow">· editing now</span>':''}</div>
+        <div class="cmeta">${langs} · ${nd} day${nd===1?"":"s"} · ${esc(th.name)}</div>
+        <div class="cmeta">Updated ${fmtDate(p.updated)}</div>
+      </div>
+      <div class="cact"><button class="btn primary" data-open="${p.id}">Open</button>
+        <button class="btn ghost" data-dl="${p.id}" title="Download a backup file">⤓</button>
+        <button class="btn ghost" data-del="${p.id}" title="Delete">🗑</button></div>
+    </div>`; }).join("") : `<div class="empty">No agendas yet. Click <b>＋ New agenda</b> to start your first one.</div>`;
+  c.innerHTML=`${homeTabs()}<div class="homehead"><h2>Your agendas <span class="count">(${arr.length}/10)</span></h2>
+      <div style="display:flex;gap:8px"><button class="btn primary" id="hNew">＋ New agenda</button>
+      <label class="btn">📥 Import file<input type="file" id="hImp" accept="application/json" class="hidden"></label></div></div>
+    <div class="cards">${cards}</div>`;
+  bindHomeTabs(c);
+  c.querySelectorAll(".cards .card").forEach(card=>card.onclick=()=>openProjectId(card.dataset.open));
+  c.querySelectorAll("[data-open]").forEach(b=>{ if(b.tagName==="BUTTON") b.onclick=(e)=>{ e.stopPropagation(); openProjectId(b.dataset.open); }; });
+  c.querySelectorAll("[data-dl]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const p=loadProjects().find(x=>x.id===b.dataset.dl); if(p) downloadJSON(p.data,p.name); });
+  c.querySelectorAll("[data-del]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(confirm("Delete this agenda permanently?")) deleteProjectId(b.dataset.del); });
+  $("hNew").onclick=newProject;
+  $("hImp").onchange=e=>{ if(e.target.files[0]) importFile(e.target.files[0]); };
+}
+// ── Team library (shared OneDrive/SharePoint folder via File System Access API) ──
+// One shared folder holds every agenda as a <slug>.agenda.json file. OneDrive syncs
+// the folder to each teammate's PC, so saving here is visible to the whole team.
+// A sibling <file>.lock records who is currently editing (turn-taking safety).
+const TEAM_DB="renmad_team_db", TEAM_STORE="handles", TEAM_KEY="dir", LOCK_TTL=4*3600*1000;
+let teamDir=null;       // FileSystemDirectoryHandle for the shared folder
+let curTeamFile=null;   // filename of the open shared agenda (null = personal / localStorage)
+let teamSyncTimer=null;
+
+function fsaOK(){ return typeof window.showDirectoryPicker==="function"; }
+function idb(){ return new Promise((res,rej)=>{ const r=indexedDB.open(TEAM_DB,1); r.onupgradeneeded=()=>r.result.createObjectStore(TEAM_STORE); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function idbSet(k,v){ const db=await idb(); return new Promise((res,rej)=>{ const t=db.transaction(TEAM_STORE,"readwrite"); t.objectStore(TEAM_STORE).put(v,k); t.oncomplete=()=>res(); t.onerror=()=>rej(t.error); }); }
+async function idbGet(k){ const db=await idb(); return new Promise((res,rej)=>{ const t=db.transaction(TEAM_STORE,"readonly"); const q=t.objectStore(TEAM_STORE).get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); }); }
+
+function userName(){ try{ return localStorage.getItem("renmad_user_name")||""; }catch(e){ return ""; } }
+function setUserName(n){ try{ localStorage.setItem("renmad_user_name",n||""); }catch(e){} }
+function ensureUserName(){ let n=userName(); if(!n){ n=(prompt("Your name (teammates see this as the last editor):","")||"").trim(); if(n) setUserName(n); } return n||"Someone"; }
+
+async function verifyPermission(handle,rw,canPrompt){ if(!handle) return false; const opts={mode:rw?"readwrite":"read"}; try{ if((await handle.queryPermission(opts))==="granted") return true; if(canPrompt && (await handle.requestPermission(opts))==="granted") return true; }catch(e){} return false; }
+async function restoreTeamFolder(){ try{ const h=await idbGet(TEAM_KEY); if(h) teamDir=h; }catch(e){} }
+async function connectTeamFolder(){
+  if(!fsaOK()){ toast("Open the app in Edge/Chrome via its web link (not a double-clicked file) to use the Team library."); return; }
+  try{ const h=await window.showDirectoryPicker({id:"renmad-agendas",mode:"readwrite",startIn:"documents"}); teamDir=h; await idbSet(TEAM_KEY,h); ensureUserName(); render(); toast("Connected — this folder is now your team's shared library."); }
+  catch(e){ /* user cancelled the picker */ }
+}
+
+async function listTeam(){
+  const items=[], locks={}; if(!teamDir) return {items,locks};
+  for await (const [name,handle] of teamDir.entries()){
+    if(handle.kind!=="file") continue;
+    if(name.endsWith(".lock")){ try{ locks[name.slice(0,-5)]=JSON.parse(await (await handle.getFile()).text()); }catch(e){} continue; }
+    if(!name.endsWith(".agenda.json")) continue;
+    try{ const f=await handle.getFile(); const d=JSON.parse(await f.text()); items.push({file:name,name:d.titleA||name.replace(/\.agenda\.json$/,""),owner:d._teamOwner||"—",updated:d._teamUpdated||f.lastModified,themeKey:d.themeKey}); }catch(e){}
+  }
+  return {items,locks};
+}
+async function writeLock(file){ if(!teamDir||!file) return; try{ const fh=await teamDir.getFileHandle(file+".lock",{create:true}); const w=await fh.createWritable(); await w.write(JSON.stringify({by:userName()||"Someone",at:Date.now()})); await w.close(); }catch(e){} }
+async function clearLock(file){ if(!teamDir||!file) return; try{ await teamDir.removeEntry(file+".lock"); }catch(e){} }
+
+async function openTeamFile(file){
+  if(!teamDir) return;
+  if(!(await verifyPermission(teamDir,true,true))){ toast("Reconnect the shared folder first (Team library → Reconnect)."); return; }
+  let d; try{ d=JSON.parse(await (await (await teamDir.getFileHandle(file)).getFile()).text()); }catch(e){ toast("Could not open that file."); return; }
+  const me=ensureUserName();
+  const {locks}=await listTeam(); const lk=locks[file];
+  if(lk && lk.by!==me && (Date.now()-(lk.at||0)<LOCK_TTL)){
+    if(!confirm("⚠ "+lk.by+" has this agenda open (since "+fmtDate(lk.at)+").\n\nIf you both edit now, whoever saves last wins — the other's changes are lost.\n\nOpen anyway?")) return;
+  }
+  if(curTeamFile && curTeamFile!==file) await clearLock(curTeamFile);
+  S=d; normalize(); curId=uid(); curTeamFile=file;
+  await writeLock(file);
+  view=(S.days&&S.days.length)?{type:"day",id:S.days[0].id}:{type:"overview"};
+  render(); setSync("saved"); toast("Opened shared: "+(S.titleA||file));
+}
+async function newTeamFile(){
+  if(!teamDir){ connectTeamFolder(); return; }
+  if(!(await verifyPermission(teamDir,true,true))){ toast("Reconnect the shared folder first."); return; }
+  const nm=(prompt("Name for the new shared agenda:","New event")||"").trim(); if(!nm) return;
+  ensureUserName();
+  if(curTeamFile) await clearLock(curTeamFile);
+  S=blankState(); S.titleA=nm; curId=uid();
+  const base=slug(nm); let file=base+".agenda.json", n=2;
+  const {items}=await listTeam(); while(items.some(it=>it.file===file)) file=base+"-"+(n++)+".agenda.json";
+  curTeamFile=file; await saveTeamFile(false);
+  view={type:"overview"}; render(); toast("Created — this agenda is now in the team folder.");
+}
+async function saveTeamFile(showToast){
+  if(!teamDir||!curTeamFile) return false;
+  try{
+    S._teamOwner=userName()||"Someone"; S._teamUpdated=Date.now();
+    const fh=await teamDir.getFileHandle(curTeamFile,{create:true});
+    const w=await fh.createWritable(); await w.write(JSON.stringify(S,null,2)); await w.close();
+    await writeLock(curTeamFile); setSync("saved");
+    if(showToast) toast("✓ Saved to the team folder");
+    return true;
+  }catch(e){ setSync("error"); toast("⚠ Could not save to the shared folder — open Team library and Reconnect."); return false; }
+}
+function scheduleTeamSync(){ if(!curTeamFile) return; clearTimeout(teamSyncTimer); setSync("saving"); teamSyncTimer=setTimeout(()=>saveTeamFile(false),3500); }
+function setSync(state){ const e=$("syncDot"); if(!e) return; if(!curTeamFile||!state){ e.style.display="none"; e.textContent=""; return; } e.style.display="inline"; const map={saving:["⏳ syncing…","var(--muted)"],saved:["✓ synced to team","#2e7d32"],error:["⚠ not synced","#c0392b"]}; const m=map[state]||["👥 shared","var(--accent)"]; e.textContent=m[0]; e.style.color=m[1]; }
+
+async function renderHomeTeam(c){
+  c.innerHTML=`${homeTabs()}<div class="tbanner">Loading team library…</div>`; bindHomeTabs(c);
+  if(!fsaOK()){
+    c.innerHTML=`${homeTabs()}<div class="tbanner">⚠ The shared <b>Team library</b> needs <b>Edge or Chrome</b>, opened from the app's <b>web address</b> (https://… or http://localhost) — not by double-clicking the file. Ask Belén/IT for the link.</div>`;
+    bindHomeTabs(c); return;
+  }
+  if(!teamDir){
+    c.innerHTML=`${homeTabs()}
+      <div class="tbanner">👥 The <b>Team library</b> keeps agendas in one <b>shared OneDrive/SharePoint folder</b>, so the whole team sees and edits the same agendas. Pick that folder once on this PC — after that, Save writes straight to it.</div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:6px">
+        <button class="btn primary" id="tConnect">🔗 Connect shared folder</button>
+        <span style="color:var(--muted);font-size:13px">Choose your team's <b>RENMAD ▸ Agendas</b> folder inside OneDrive.</span></div>`;
+    bindHomeTabs(c); $("tConnect").onclick=connectTeamFolder; return;
+  }
+  if(!(await verifyPermission(teamDir,true,false))){
+    c.innerHTML=`${homeTabs()}<div class="tbanner">🔒 Reconnect to your shared folder to continue — browsers ask for permission again after a while.</div>
+      <button class="btn primary" id="tReconnect">🔗 Reconnect shared folder</button>`;
+    bindHomeTabs(c); $("tReconnect").onclick=async()=>{ if(await verifyPermission(teamDir,true,true)) render(); else connectTeamFolder(); }; return;
+  }
+  const {items,locks}=await listTeam(); items.sort((a,b)=>(b.updated||0)-(a.updated||0));
+  const me=userName();
+  const cards = items.length ? items.map(it=>{
+    const th=THEMES[it.themeKey]||THEMES.almacenamiento; const lk=locks[it.file];
+    const editing = lk && lk.by!==me && (Date.now()-(lk.at||0)<LOCK_TTL);
+    const tag = editing ? `<div class="cmeta" style="color:#c0392b">🔒 ${esc(lk.by)} editing now</div>` : `<div class="cmeta"><span class="synctag">✓ synced</span></div>`;
+    return `<div class="card" data-tf="${esc(it.file)}">
+      <div class="cbar" style="background:${th.hex}"></div>
+      <div class="cbody"><div class="cname">${esc(it.name)}${it.file===curTeamFile?' <span class="cnow">· editing now</span>':''}</div>
+        <div class="cmeta">👤 ${esc(it.owner)} · ${esc(fmtDate(it.updated))}</div>${tag}</div>
+      <div class="cact"><button class="btn primary" data-tf="${esc(it.file)}">Open</button>
+        <button class="btn ghost" data-tdel="${esc(it.file)}" title="Delete from shared folder">🗑</button></div></div>`;
+  }).join("") : `<div class="empty">No shared agendas yet. Click <b>＋ New shared agenda</b> to create the first one for your team.</div>`;
+  c.innerHTML=`${homeTabs()}
+    <div class="homehead"><h2>Team library <span class="count">(${items.length})</span></h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn primary" id="hNewT">＋ New shared agenda</button>
+        <button class="btn ghost" id="tRefresh" title="Refresh list">🔄</button>
+        <button class="btn ghost" id="tChange" title="Switch to a different folder">📁 Change folder</button></div></div>
+    <div class="cards">${cards}</div>`;
+  bindHomeTabs(c);
+  c.querySelectorAll("[data-tf]").forEach(el=>el.onclick=(e)=>{ e.stopPropagation(); openTeamFile(el.dataset.tf); });
+  c.querySelectorAll("[data-tdel]").forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); if(confirm("Delete this agenda from the shared folder for the whole team?")){ try{ await teamDir.removeEntry(b.dataset.tdel); await clearLock(b.dataset.tdel); }catch(err){} if(curTeamFile===b.dataset.tdel){ curTeamFile=null; setSync(""); } render(); } });
+  $("hNewT").onclick=newTeamFile; $("tRefresh").onclick=()=>render(); $("tChange").onclick=connectTeamFolder;
+}
+
+function renderParking(c){
+  if(!S.parking.length){ c.innerHTML=`<p style="color:var(--muted)">No parked sessions yet. On any session, open the ⋯ menu → <b>Park</b> to set it aside here. You can restore it to any day later, or delete it.</p>`; return; }
+  let h=`<p style="color:var(--muted);margin:0 0 12px">Parked sessions — restore to any day, or delete.</p>`;
+  S.parking.forEach((b,i)=>{ const days=S.days.map(d=>`<button class="btn" data-rest="${d.id}" data-i="${i}">→ ${esc(d.la||"Day")}</button>`).join(" ");
+    h+=`<div class="prj"><span class="nm"><b>${esc(b.aT||b.bT||"Untitled session")}</b><small>${(+b.dur||0)} min${b.spk?" · "+esc((b.spk.split("\n")[0]||"")):""}</small></span> ${days} <button class="btn ghost" data-del="${i}">🗑</button></div>`; });
+  c.innerHTML=h;
+  c.querySelectorAll("[data-rest]").forEach(btn=>btn.onclick=()=>{ const d=dayById(btn.dataset.rest); const blk=S.parking.splice(+btn.dataset.i,1)[0]; d.tracks[0].blocks.push(blk); render(); autosave(); toast("Restored to "+(d.la||"day")); });
+  c.querySelectorAll("[data-del]").forEach(btn=>btn.onclick=()=>{ S.parking.splice(+btn.dataset.del,1); render(); autosave(); });
+}
+
+function renderDay(c,day){
+  const multi=day.tracks.length>1;
+  c.innerHTML=`
+    <div class="day-head">
+      <input class="dlabel" id="dla" value="${esc(day.la)}" placeholder="Label (${LANGS[S.langA]})">
+      <input class="dlabel2" id="dlb" value="${esc(day.lb)}" placeholder="Label (${LANGS[S.langB]})">
+      <input class="ddate" id="ddate" value="${esc(day.date)}" placeholder="15 Sep 2026">
+      <span class="day-sum">${daySummary(day)}</span>
+    </div>
+    <div class="tracks" id="tracks"></div>
+    <div><button class="add" id="addTrk">➕ Add parallel track</button>
+    <button class="add" id="resetTimes" style="margin-left:8px">↻ Reset times</button>
+    <button class="add" id="delDay" style="margin-left:8px">🗑 Delete day</button></div>`;
+  const bindH=(id,k,reflow)=>{ $(id).oninput=e=>{ day[k]=e.target.value; if(k==="la"){ $("vtitle").textContent=e.target.value; renderSidebar(); } if(reflow){ computeAll(day); document.querySelector(".day-sum").textContent=daySummary(day); day.tracks.forEach(refreshTrackTimes); } autosave(); }; };
+  bindH("dla","la"); bindH("dlb","lb"); bindH("ddate","date");
+  const host=$("tracks");
+  day.tracks.forEach((track,ti)=>{
+    const tEl=document.createElement("div"); tEl.className="track"+(multi?"":" solo");
+    let head="";
+    if(multi){ head=`<div class="track-head">
+        <input value="${esc(track.na)}" data-k="na" placeholder="Track (${LANGS[S.langA]})">
+        <input value="${esc(track.nb)}" data-k="nb" placeholder="(${LANGS[S.langB]})">
+        <button class="xtrk" title="Delete track">🗑</button></div>`; }
+    tEl.innerHTML=head+`
+      <div class="grid-head"><div>${lab(S.langA).time}</div><div>${LANGS[S.langA]}</div><div>${LANGS[S.langB]}</div><div>${lab(S.langA).spk}</div></div>
+      <div class="blocks" id="blk_${track.id}"></div>
+      <button class="add addblk">➕ Add session / block</button>`;
+    if(multi){ tEl.querySelectorAll(".track-head input").forEach(inp=>{ inp.oninput=()=>{ track[inp.dataset.k]=inp.value; if(inp.dataset.k==="start"){ computeTrack(day,track); document.querySelector(".day-sum").textContent=daySummary(day); refreshTrackTimes(track); } autosave(); }; });
+      tEl.querySelector(".xtrk").onclick=()=>{ if(confirm("Delete this track?")){ day.tracks.splice(ti,1); render(); autosave(); } }; }
+    const bl=tEl.querySelector(".blocks");
+    bl.appendChild(insEl(track,-1));
+    track.blocks.forEach((b,bi)=>{ bl.appendChild(rowEl(day,track,b,bi)); bl.appendChild(insEl(track,bi)); });
+    if(window.Sortable){ Sortable.create(bl,{handle:".handle",draggable:".row",animation:140,onEnd:e=>{ /* recompute via index of rows */ reindexFromDOM(bl,track); computeAll(day); document.querySelector(".day-sum").textContent=daySummary(day); render(); autosave(); }}); }
+    tEl.querySelector(".addblk").onclick=()=>{ track.blocks.push(blankBlock()); render(); autosave(); };
+    host.appendChild(tEl);
+  });
+  $("resetTimes").onclick=()=>{ if(confirm("Reset all times in this day to flow from the start? (clears any locked/fixed session times)")){ day.tracks.forEach(t=>t.blocks.forEach(b=>b.fixed="")); render(); autosave(); toast("Times reset — now flowing from the day start"); } };
+  $("addTrk").onclick=()=>{ if(day.tracks.length===1 && !day.tracks[0].na){ day.tracks[0].na="Track A"; day.tracks[0].nb="Track A"; } const n=day.tracks.length; day.tracks.push(blankTrack("Track "+String.fromCharCode(65+n),"Track "+String.fromCharCode(65+n))); render(); autosave(); };
+  $("delDay").onclick=()=>{ if(confirm("Delete this day?")){ S.days=S.days.filter(x=>x.id!==day.id); if(!S.days.length) S.days.push(blankDay(1)); view={type:"overview"}; render(); autosave(); } };
+  // wall
+}
+function reindexFromDOM(bl,track){ const ids=[...bl.querySelectorAll(".row")].map(r=>r.dataset.id); track.blocks.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id)); }
+function insEl(track,bi){ const d=document.createElement("div"); d.className="insrow"; d.innerHTML=`<button title="Insert a session here">＋</button>`; d.querySelector("button").onclick=()=>{ track.blocks.splice(bi+1,0,blankBlock()); render(); autosave(); }; return d; }
+function refreshTrackTimes(track){ const cont=$("blk_"+track.id); if(!cont) return; const rows=cont.querySelectorAll(".row"); track.blocks.forEach((b,i)=>{ const r=rows[i]; if(!r) return; const si=r.querySelector(".stime"); if(si && document.activeElement!==si){ si.value=fmtMin(b._s); } const en=r.querySelector(".endline"); if(en) en.textContent="→ "+fmtMin(b._e); }); }
+
+function rowEl(day,track,b,bi){
+  computeTrack(day,track);
+  const r=document.createElement("div"); r.className="row"; r.dataset.id=b.id;
+  const typeOpts=Object.entries(TYPES).map(([k,v])=>`<option value="${k}" ${b.type===k?"selected":""}>${v.label}</option>`).join("");
+  r.innerHTML=`
+    <div class="bar" style="background:${TYPES[b.type].color}"></div>
+    <span class="handle" title="Drag to reorder">⠿</span>
+    <div class="tcell">
+      <div class="startline">
+        <input class="stime" value="${fmtMin(b._s)}" title="Start time — type it or use the arrows / ↑↓ keys">
+        <span class="step"><button data-step="up" title="+5 min">▲</button><button data-step="down" title="−5 min">▼</button></span>
+      </div>
+      <div class="endline">→ ${fmtMin(b._e)}</div>
+      <div class="durline"><input type="number" min="0" step="5" value="${+b.dur||0}" data-k="dur"><span>min</span></div>
+      <select data-k="type">${typeOpts}</select>
+    </div>
+    <div class="cell acell">
+      <div class="langtag"><span>${LANGS[S.langA]}</span></div>
+      <input class="title" value="${esc(b.aT)}" data-k="aT" placeholder="Session title" spellcheck="true">
+      <textarea class="desc" data-k="aD" placeholder="Description (optional)" spellcheck="true">${esc(b.aD)}</textarea>
+    </div>
+    <div class="cell bcell">
+      <div class="langtag"><span>${LANGS[S.langB]}</span><span class="tr" data-act="tr">🌐 translate ←</span></div>
+      <input class="title" value="${esc(b.bT)}" data-k="bT" placeholder="Título de la sesión" spellcheck="true">
+      <textarea class="desc" data-k="bD" placeholder="Descripción (opcional)" spellcheck="true">${esc(b.bD)}</textarea>
+    </div>
+    <div class="cell spkcell">
+      <div class="langtag"><span>👥 ${lab(S.langA).spk} (shared)</span></div>
+      <textarea class="spk" data-k="spk" placeholder="Name, Role, Company&#10;mod: Name, Role, Company" spellcheck="true">${esc(b.spk)}</textarea>
+    </div>
+    <div class="rowtools"><button data-act="menu" title="More options">⋯</button></div>
+    <div class="rowmenu" style="display:none"></div>`;
+  r.querySelectorAll("[data-k]").forEach(el=>{
+    el.oninput=()=>{ b[el.dataset.k]=el.dataset.k==="dur"?(+el.value||0):el.value;
+      if(el.dataset.k==="dur"||el.dataset.k==="fixed"){ computeTrack(day,track); const ds=document.querySelector(".day-sum"); if(ds) ds.textContent=daySummary(day); refreshTrackTimes(track); } autosave(); };
+    if(el.dataset.k==="type") el.onchange=()=>{ b.type=el.value; r.querySelector(".bar").style.background=TYPES[b.type].color; autosave(); };
+  });
+  // editable start time (type, ↑↓ keys, or stepper buttons) — sets a pin
+  const st=r.querySelector(".stime");
+  const setStart=(v)=>{ const mm=parseMin(v); const val=(mm==null?"":fmtMin(mm));
+    if(bi===0){ if(track===day.tracks[0]){ if(val) day.start=val; } else { track.start=val; } b.fixed=""; }
+    else { b.fixed=val; }
+    computeTrack(day,track); st.value=fmtMin(b._s); const ds=document.querySelector(".day-sum"); if(ds) ds.textContent=daySummary(day); refreshTrackTimes(track); autosave(); };
+  st.onchange=()=>setStart(st.value);
+  st.onkeydown=(e)=>{ if(e.key==="ArrowUp"||e.key==="ArrowDown"){ e.preventDefault(); const cur=parseMin(st.value); const base=(cur==null?b._s:cur); setStart(fmtMin(base+(e.key==="ArrowUp"?5:-5))); } };
+  r.querySelectorAll("[data-step]").forEach(btn=>{ btn.onclick=()=>{ const cur=parseMin(st.value); const base=(cur==null?b._s:cur); setStart(fmtMin(base+(btn.dataset.step==="up"?5:-5))); }; });
+  r.querySelector("[data-act=tr]").onclick=()=>translateRow(b,r);
+  r.querySelector("[data-act=menu]").onclick=(e)=>{ e.stopPropagation(); openRowMenu(r,day,track,b,bi); };
+  return r;
+}
+
+function closeMenus(){ document.querySelectorAll(".rowmenu").forEach(m=>m.style.display="none"); }
+function openRowMenu(r,day,track,b,bi){
+  const m=r.querySelector(".rowmenu"); const wasOpen=m.style.display==="block"; closeMenus(); if(wasOpen) return;
+  const others=S.days.filter(d=>d.id!==day.id);
+  const moveItems = others.length ? others.map(d=>`<button data-move="${d.id}">→ ${esc(d.la||"Day")}</button>`).join("") : `<div class="mlabel">No other day yet</div>`;
+  m.innerHTML=`
+    <button data-m="up" ${bi===0?"disabled":""}>▲ Move up</button>
+    <button data-m="down" ${bi===track.blocks.length-1?"disabled":""}>▼ Move down</button>
+    <button data-m="tr">🌐 Translate this session</button>
+    ${b.fixed?`<button data-m="unlock">🔓 Unlock start (auto-flow)</button>`:""}
+    <div class="mlabel">Move to day</div>
+    ${moveItems}
+    <div class="msep"></div>
+    <button data-m="park">🅿️ Park (set aside)</button>
+    <button data-m="del" class="danger">🗑 Delete</button>`;
+  m.style.display="block";
+  m.querySelector("[data-m=up]").onclick=()=>{ if(bi>0){ [track.blocks[bi-1],track.blocks[bi]]=[track.blocks[bi],track.blocks[bi-1]]; render(); autosave(); } };
+  m.querySelector("[data-m=down]").onclick=()=>{ if(bi<track.blocks.length-1){ [track.blocks[bi+1],track.blocks[bi]]=[track.blocks[bi],track.blocks[bi+1]]; render(); autosave(); } };
+  m.querySelector("[data-m=tr]").onclick=()=>{ closeMenus(); translateRow(b,r); };
+  const ub=m.querySelector("[data-m=unlock]"); if(ub) ub.onclick=()=>{ b.fixed=""; render(); autosave(); toast("Start unlocked — flows from the previous session"); };
+  m.querySelectorAll("[data-move]").forEach(btn=>btn.onclick=()=>{ const to=dayById(btn.dataset.move); track.blocks.splice(bi,1); if(!track.blocks.length) track.blocks.push(blankBlock()); to.tracks[0].blocks.push(b); render(); autosave(); toast("Moved to "+(to.la||"day")); });
+  m.querySelector("[data-m=park]").onclick=()=>{ track.blocks.splice(bi,1); if(!track.blocks.length) track.blocks.push(blankBlock()); S.parking.push(b); render(); autosave(); toast("Parked — see 🅿️ Parking"); };
+  m.querySelector("[data-m=del]").onclick=()=>{ track.blocks.splice(bi,1); if(!track.blocks.length) track.blocks.push(blankBlock()); render(); autosave(); };
+}
+
+// ── Translation ─────────────────────────────────────────────────────────────
+async function mm(text,from,to){ text=(text||"").trim(); if(!text) return ""; if(from===to) return text;
+  const chunks=[]; let t=text; while(t.length>480){ let cut=t.lastIndexOf(" ",480); if(cut<1) cut=480; chunks.push(t.slice(0,cut)); t=t.slice(cut); } chunks.push(t); let out=[];
+  const em=(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(S.contactEmail||"")?S.contactEmail:"belen@atainsights.com");
+  for(const c of chunks){ const u="https://api.mymemory.translated.net/get?q="+encodeURIComponent(c)+"&langpair="+from+"|"+to+"&de="+encodeURIComponent(em); const r=await fetch(u); const j=await r.json(); let tx=(j.responseData&&j.responseData.translatedText)||""; if(/MYMEMORY WARNING|QUERY LENGTH|PLEASE SELECT/i.test(tx)) throw new Error(tx); out.push(tx); }
+  const d=document.createElement("textarea"); d.innerHTML=out.join(" "); return d.value; }
+async function translateRow(b,r){ try{ toast("Translating…"); b.bT=await mm(b.aT,S.langA,S.langB); b.bD=await mm(b.aD,S.langA,S.langB); r.querySelector(".bcell .title").value=b.bT; r.querySelector(".bcell .desc").value=b.bD; autosave(); toast("Translated — edit as needed"); }catch(e){ const q=/USED ALL|NEXT AVAILABLE|QUOTA|MYMEMORY WARNING/i.test(e.message||""); toast(q?"Daily free-translation limit reached — try again later.":("Translation failed: "+e.message)); } }
+async function translateAll(){ try{ toast("Filling missing "+LANGS[S.langB]+" translations…");
+  if(!S.titleB && S.titleA) S.titleB=await mm(S.titleA,S.langA,S.langB);
+  if(!S.locB && S.locA) S.locB=await mm(S.locA,S.langA,S.langB);
+  if(!S.ctaB && S.ctaA) S.ctaB=await mm(S.ctaA,S.langA,S.langB);
+  for(const d of S.days){ if(d.la && (!d.lb||d.lb===d.la)) d.lb=await mm(d.la,S.langA,S.langB);
+    for(const t of d.tracks){ if(t.na && !t.nb) t.nb=await mm(t.na,S.langA,S.langB);
+      for(const b of t.blocks){ if(b.aT && !b.bT) b.bT=await mm(b.aT,S.langA,S.langB); if(b.aD && !b.bD) b.bD=await mm(b.aD,S.langA,S.langB); } } }
+  render(); autosave(); toast("Filled missing translations — your edits were kept. (Use a session's ⋯ → Translate to redo one.)"); }catch(e){ render(); autosave(); const q=/USED ALL|NEXT AVAILABLE|QUOTA|MYMEMORY WARNING/i.test(e.message||""); toast(q?"Daily free-translation limit reached — try again later, or translate a few sessions at a time via each session's ⋯. Everything already translated is saved.":("Translation stopped: "+(e.message||e))); } }
+
+// ── Spelling & grammar check (LanguageTool, all languages, browser-independent) ──
+const LTLANG={en:"en-GB",es:"es",it:"it",pl:"pl-PL",pt:"pt-PT",fr:"fr",de:"de-DE"};
+async function ltCheck(text,lang){
+  text=text||""; if(!text.trim()) return [];
+  const body="text="+encodeURIComponent(text)+"&language="+encodeURIComponent(LTLANG[lang]||"auto");
+  const r=await fetch("https://api.languagetool.org/v2/check",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body});
+  if(!r.ok) throw new Error("LanguageTool "+r.status);
+  const j=await r.json(); return j.matches||[];
+}
+async function checkText(){
+  toast("Checking spelling & grammar… one moment");
+  const groups={}; // lang -> [{label,get,set}]
+  const reg=(lang,label,get,set)=>{ const v=get(); if(v&&v.trim()){ (groups[lang]=groups[lang]||[]).push({label,get,set}); } };
+  reg(S.langA,"Event title",()=>S.titleA,v=>S.titleA=v);
+  if(S.titleB) reg(S.langB,"Event title",()=>S.titleB,v=>S.titleB=v);
+  reg(S.langA,"Location",()=>S.locA,v=>S.locA=v);
+  if(S.ctaA) reg(S.langA,"Call to action",()=>S.ctaA,v=>S.ctaA=v);
+  S.days.forEach((d,di)=>d.tracks.forEach(t=>t.blocks.forEach((b,bi)=>{ const w="Day "+(di+1)+" · #"+(bi+1);
+    reg(S.langA,w+" title",()=>b.aT,v=>b.aT=v); reg(S.langA,w+" description",()=>b.aD,v=>b.aD=v);
+    reg(S.langB,w+" title",()=>b.bT,v=>b.bT=v); reg(S.langB,w+" description",()=>b.bD,v=>b.bD=v);
+  })));
+  const SEP="\n\n"; const results=[];
+  try{
+    for(const lang of Object.keys(groups)){
+      const fs=groups[lang]; const parts=fs.map(f=>f.get()); const text=parts.join(SEP);
+      const matches=await ltCheck(text,lang);
+      const starts=[]; let pos=0; parts.forEach((p)=>{ starts.push(pos); pos+=p.length+SEP.length; });
+      matches.forEach(m=>{ let idx=-1; for(let i=0;i<fs.length;i++){ const s=starts[i], e=s+parts[i].length; if(m.offset>=s && m.offset<=e){ idx=i; m._local=m.offset-s; break; } }
+        if(idx<0) return; let res=results.find(r=>r.f===fs[idx]); if(!res){ res={f:fs[idx],matches:[]}; results.push(res); } res.matches.push(m); });
+    }
+  }catch(e){ const q=/429|too many|limit/i.test(e.message||""); toast(q?"Checker busy (free limit) — try again in a minute.":("Checker error: "+(e.message||e))); return; }
+  showCheckModal(results);
+}
+function showCheckModal(results){
+  closeModal();
+  const issues=[]; results.forEach(r=>r.matches.forEach(m=>issues.push({f:r.f,m:m,done:false})));
+  const bg=document.createElement("div"); bg.className="modalbg"; bg.id="modalbg";
+  bg.innerHTML='<div class="modal" style="max-width:640px"><h3 id="ckHead"></h3>'+
+    '<p style="color:var(--muted);font-size:12px;margin:0 0 6px">Click a suggestion to fix just that one, or Ignore. Nothing changes until you click.</p>'+
+    '<div id="ckList"></div>'+
+    '<div style="display:flex;gap:8px;margin-top:14px"><button class="btn" id="ckAll">Apply all top suggestions</button><span style="flex:1"></span><button class="btn ghost" id="ckClose">Close</button></div></div>';
+  document.body.appendChild(bg);
+  bg.onclick=e=>{ if(e.target===bg) closeModal(); };
+  bg.querySelector("#ckClose").onclick=closeModal;
+  function applyOne(it,rep){ const v=it.f.get(); const nv=v.slice(0,it.m._local)+rep+v.slice(it.m._local+it.m.length); it.f.set(nv); const delta=rep.length-it.m.length; issues.forEach(o=>{ if(!o.done && o!==it && o.f===it.f && o.m._local>it.m._local) o.m._local+=delta; }); it.done=true; render(); autosave(); draw(); }
+  function draw(){
+    const left=issues.filter(i=>!i.done);
+    bg.querySelector("#ckHead").innerHTML='Spelling &amp; grammar <span style="font-weight:400;color:var(--muted);font-size:13px">('+left.length+(left.length===1?' issue':' issues')+')</span>';
+    const list=bg.querySelector("#ckList"); const allBtn=bg.querySelector("#ckAll");
+    if(!left.length){ list.innerHTML='<p style="color:#2e7d32;font-weight:600">✓ All resolved.</p>'; if(allBtn) allBtn.style.display="none"; return; }
+    list.innerHTML=left.map(it=>{ const i=issues.indexOf(it); const v=it.f.get(); const bad=v.substr(it.m._local,it.m.length); const reps=(it.m.replacements||[]).slice(0,4);
+      return '<div style="border-top:1px solid var(--line);padding:8px 0">'+
+        '<div style="font-size:11px;color:var(--muted)">'+esc(it.f.label)+'</div>'+
+        '<div style="font-size:13px;margin:2px 0"><b style="color:#c0392b">'+esc(bad||"·")+'</b> <span style="color:var(--muted);font-size:11px">'+esc(it.m.shortMessage||it.m.message||"")+'</span></div>'+
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">'+
+          reps.map((rp,k)=>'<button class="btn" data-act="sug" data-i="'+i+'" data-ri="'+k+'" style="padding:4px 9px;font-size:12px">'+esc(rp.value||"(delete)")+'</button>').join("")+
+          (reps.length?'':'<span style="color:var(--muted);font-size:12px;align-self:center">no suggestion</span>')+
+          '<button class="btn ghost" data-act="ign" data-i="'+i+'" style="padding:4px 9px;font-size:12px">Ignore</button>'+
+        '</div></div>'; }).join("");
+    list.querySelectorAll('[data-act=sug]').forEach(b=>b.onclick=()=>{ const it=issues[+b.dataset.i]; const rep=(it.m.replacements[+b.dataset.ri]||{}).value||""; applyOne(it,rep); });
+    list.querySelectorAll('[data-act=ign]').forEach(b=>b.onclick=()=>{ issues[+b.dataset.i].done=true; draw(); });
+  }
+  bg.querySelector("#ckAll").onclick=()=>{ issues.filter(i=>!i.done && i.m.replacements && i.m.replacements.length).slice().forEach(it=>applyOne(it,it.m.replacements[0].value)); };
+  draw();
+}
+
+// ── Projects (localStorage, up to 10) ───────────────────────────────────────
+const PKEY="renmad_projects_v2", CKEY="renmad_current_v2";
+function loadProjects(){ try{ return JSON.parse(localStorage.getItem(PKEY)||"[]"); }catch(e){ return []; } }
+function saveProjects(arr){ try{ localStorage.setItem(PKEY,JSON.stringify(arr)); }catch(e){ toast("⚠ Storage full — download a backup (Projects → ⤓)"); } }
+let saveTimer;
+function autosave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{ const arr=loadProjects(); const i=arr.findIndex(p=>p.id===curId); const rec={id:curId,name:S.titleA||"Untitled event",updated:Date.now(),data:S}; if(i>=0) arr[i]=rec; else arr.push(rec); saveProjects(arr); try{ localStorage.setItem(CKEY,curId); }catch(e){} },500); scheduleTeamSync(); }
+function leaveTeam(){ if(curTeamFile){ clearLock(curTeamFile); curTeamFile=null; setSync(""); } }
+function newProject(){ leaveTeam(); const arr=loadProjects(); if(arr.length>=10){ toast("You have 10 agendas (max). Delete one first."); view={type:"home"}; render(); return; } S=blankState(); curId=uid(); view={type:"overview"}; render(); autosave(); toast("New agenda — give it a title in Event details"); }
+function openProjectId(id){ const arr=loadProjects(); const p=arr.find(x=>x.id===id); if(!p) return; leaveTeam(); S=p.data; normalize(); curId=id; try{ localStorage.setItem(CKEY,id); }catch(e){} closeModal(); view=(S.days&&S.days.length)?{type:"day",id:S.days[0].id}:{type:"overview"}; render(); toast("Opened: "+(p.name||"agenda")); }
+function deleteProjectId(id){ let arr=loadProjects().filter(x=>x.id!==id); saveProjects(arr); if(curId===id){ if(arr.length){ openProjectId(arr.sort((a,b)=>b.updated-a.updated)[0].id); } else { newProject(); } } else { render(); } }
+function fmtDate(ms){ try{ return new Date(ms).toLocaleString(); }catch(e){ return ""; } }
+
+function openModal(){
+  const arr=loadProjects().sort((a,b)=>b.updated-a.updated);
+  let rows=arr.length?arr.map(p=>`<div class="prj"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>
+     <span class="nm"><b>${esc(p.name||"Untitled")}</b><small>${fmtDate(p.updated)}${p.id===curId?" · current":""}</small></span>
+     <button class="btn" data-open="${p.id}">Open</button>
+     <button class="btn ghost" data-dl="${p.id}" title="Download backup">⤓</button>
+     <button class="btn ghost" data-del="${p.id}">🗑</button></div>`).join(""):`<p style="color:var(--muted)">No saved projects yet.</p>`;
+  const bg=document.createElement("div"); bg.className="modalbg"; bg.id="modalbg";
+  bg.innerHTML=`<div class="modal"><h3>Projects <span style="font-weight:400;color:var(--muted);font-size:13px">(${arr.length}/10)</span></h3>
+    ${rows}
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn primary" id="mNew">＋ New project</button>
+      <label class="btn">📥 Import file<input type="file" id="mImp" accept="application/json" class="hidden"></label>
+      <span style="flex:1"></span><button class="btn ghost" id="mClose">Close</button>
+    </div></div>`;
+  document.body.appendChild(bg);
+  bg.onclick=e=>{ if(e.target===bg) closeModal(); };
+  bg.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openProjectId(b.dataset.open));
+  bg.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ if(confirm("Delete this project?")) deleteProjectId(b.dataset.del); });
+  bg.querySelectorAll("[data-dl]").forEach(b=>b.onclick=()=>{ const p=loadProjects().find(x=>x.id===b.dataset.dl); if(p) downloadJSON(p.data,p.name); });
+  bg.querySelector("#mNew").onclick=()=>{ closeModal(); newProject(); };
+  bg.querySelector("#mClose").onclick=closeModal;
+  bg.querySelector("#mImp").onchange=e=>{ if(e.target.files[0]) importFile(e.target.files[0]); };
+}
+function closeModal(){ const m=$("modalbg"); if(m) m.remove(); }
+function downloadJSON(data,name){ downloadBlob(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}), slug(name||"agenda")+".agenda.json"); }
+function importFile(file){ const rd=new FileReader(); rd.onload=()=>{ try{ const data=JSON.parse(rd.result); const arr=loadProjects(); if(arr.length>=10){ toast("Max 10 projects — delete one first."); return; } leaveTeam(); S=data; normalize(); curId=uid(); saveProjects([...arr,{id:curId,name:S.titleA||"Imported",updated:Date.now(),data:S}]); localStorage.setItem(CKEY,curId); closeModal(); view={type:"overview"}; render(); toast("Imported"); }catch(e){ toast("Could not read that file"); } }; rd.readAsText(file); }
+function normalize(){ S={...blankState(),...S}; S.days=(S.days||[]).map(x=>{ const d={...blankDay(1),...x}; if(x.blocks && !x.tracks){ d.tracks=[{...blankTrack(),blocks:x.blocks}]; delete d.blocks; } d.tracks=(d.tracks||[blankTrack()]).map(t=>({...blankTrack(),...t,blocks:(t.blocks||[]).map(b=>({...blankBlock(),...b}))})); return d; });
+  S.days.forEach(d=>d.tracks.forEach((t,ti)=>{ const b0=t.blocks[0]; if(b0 && b0.fixed){ if(ti===0){ d.start=b0.fixed; } else { t.start=b0.fixed; } b0.fixed=""; } }));
+  if(!S.wallImg){ for(const d of S.days){ if(d.wallImg){ S.wallImg=d.wallImg; break; } } }
+  if(S.ctaUrl && !S.ctaUrlA){ S.ctaUrlA=S.ctaUrl; }
+  S.parking=S.parking||[]; }
+function slug(s){ return (s||"agenda").trim().replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"").toLowerCase()||"agenda"; }
+
+// ── Export ──────────────────────────────────────────────────────────────────
+function parseSpeakers(txt){ const out=[]; (txt||"").split(/\n/).forEach(line=>{ let s=line.trim(); if(!s) return; s=s.replace(/^[-•*–·]\s*/,""); let mod=false; const m=s.match(/^(mod|moderator|moderador|moderadora|moderatore|moderatrice)\s*[:.]\s*(.*)$/i); if(m){ mod=true; s=m[2].trim(); } const p=s.split(",").map(x=>x.trim()).filter(Boolean); if(!p.length) return; out.push({name:p[0],role:p.length>2?p.slice(1,-1).join(", "):"",company:p.length>=2?p[p.length-1]:"",mod}); }); return out; }
+function inlineMd(s){ let h=esc(s);
+  h=h.replace(/\*\*([\s\S]+?)\*\*/g,"<b>$1</b>").replace(/__([\s\S]+?)__/g,"<b>$1</b>").replace(/\*([^*\n]+?)\*/g,"<i>$1</i>");
+  return h; }
+function descHtml(text){
+  const lines=(text||"").split(/\r?\n/); let out="", mode=null;
+  const close=()=>{ if(mode){ out+=(mode==="ul"?"</ul>":"</ol>"); mode=null; } };
+  for(const raw of lines){
+    const ln=raw.trim(); if(!ln){ close(); continue; }
+    let m;
+    if((m=ln.match(/^[•\-–—·▪●‣◦]\s+(.*)$/))){ if(mode!=="ul"){ close(); out+='<ul class="dl">'; mode="ul"; } out+="<li>"+inlineMd(m[1])+"</li>"; }
+    else if((m=ln.match(/^\d+[.)]\s+(.*)$/))){ if(mode!=="ol"){ close(); out+='<ol class="dl">'; mode="ol"; } out+="<li>"+inlineMd(m[1])+"</li>"; }
+    else { close(); out+='<div class="dp">'+inlineMd(ln)+'</div>'; }
+  }
+  close(); return out;
+}
+function trackTable(day,track,side,L,hex,spkCol){
+  computeTrack(day,track); let rows="";
+  track.blocks.forEach(b=>{ const title=esc((side==="a"?b.aT:b.bT)||"—"); const dRaw=(side==="a"?b.aD:b.bD)||"";
+    let spk=""; parseSpeakers(b.spk).forEach(sp=>{ const nm=`<b>${inlineMd(sp.name)}</b>`; const co=sp.company?`<b>${inlineMd(sp.company)}</b>`:""; const ro=sp.role?inlineMd(sp.role):""; const tail=[ro,co].filter(Boolean).join(", "); const line=nm+(tail?" — "+tail:""); spk+=sp.mod?`<div class="sp"><span class="mlab">${L.mod}:</span> ${line}</div>`:`<div class="sp">${line}</div>`; });
+    const td=dRaw.trim()?`<div class="td">${descHtml(dRaw)}</div>`:"";
+    if(spkCol){
+      rows+=`<tr><td class="tt">${fmtMin(b._s)}<br><span class="te">${fmtMin(b._e)}</span></td><td class="tp"><div class="ti">${title}</div>${td}</td><td class="sk">${spk}</td></tr>`;
+    } else {
+      rows+=`<tr><td class="tt">${fmtMin(b._s)}<br><span class="te">${fmtMin(b._e)}</span></td><td class="tp"><div class="ti">${title}</div>${spk}${td}</td></tr>`;
+    }
+  });
+  const head = spkCol ? `<tr><th class="tt">${L.time}</th><th>${L.prog}</th><th class="sk">${L.spk}</th></tr>` : `<tr><th class="tt">${L.time}</th><th>${L.prog}</th></tr>`;
+  return `<table class="ag"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+function buildBody(side,omitFootzone){
+  const L=lab(side==="a"?S.langA:S.langB), hex=THEMES[S.themeKey].hex;
+  const T=side==="a"?S.titleA:(S.titleB||S.titleA); const loc=side==="a"?S.locA:(S.locB||S.locA);
+  const logo=headerLogo();
+  let header=`<div class="ehead" style="border-color:${hex}">${logo?`<img class="elogo" src="${logo}">`:""}<div><div class="ettl">${esc(T||"Event agenda")}</div>${loc?`<div class="esub" style="color:${hex}">${esc(loc)}</div>`:""}</div></div>`;
+  const cta=side==="a"?S.ctaA:(S.ctaB||S.ctaA); const ctaUrl=((side==="a"?S.ctaUrlA:(S.ctaUrlB||S.ctaUrlA))||"").trim();
+  let body="";
+  S.days.forEach((day,di)=>{ computeAll(day);
+    const head=[side==="a"?day.la:(day.lb||day.la), day.date].filter(Boolean).join(" · "); const span=daySpan(day);
+    body+=`<section class="daysec">`;
+    body+=`<div class="dayttl">${esc(head)}${span?` <span class="dspan" style="color:${hex}">${span}</span>`:""}</div>`;
+    if(day.tracks.length<=1){ body+=trackTable(day,day.tracks[0],side,L,hex,true); }
+    else { const w=(100/day.tracks.length).toFixed(2); body+=`<table class="tracks-x"><tr>`; day.tracks.forEach(t=>{ const nm=side==="a"?t.na:(t.nb||t.na); body+=`<td style="width:${w}%;vertical-align:top">${nm?`<div class="trkname" style="background:${hex}">${esc(nm)}</div>`:""}${trackTable(day,t,side,L,hex,false)}</td>`; }); body+=`</tr></table>`; }
+    body+=`</section>`;
+  });
+  const cname=(S.contactName||"").trim(), cmail=(S.contactEmail||"").trim();
+  const wall = S.wallImg ? `<div class="wall"><img src="${S.wallImg}"></div>` : "";
+  const ctaLine = cta ? `<div style="font-weight:800;font-size:13px">${ctaUrl?`<a href="${esc(ctaUrl)}" style="color:#fff;text-decoration:underline">${esc(cta)}</a>`:esc(cta)}</div>` : "";
+  const mailA = cmail?`<a href="mailto:${esc(cmail)}" style="color:#fff;text-decoration:underline">${esc(cmail)}</a>`:"";
+  const webA = `<a href="https://www.atainsights.com" style="color:#fff;text-decoration:underline">atainsights.com</a>`;
+  const contactLine = `<div style="font-size:11px;margin-top:${cta?'5px':'0'}">${[cname?`<b>${esc(cname)}</b>`:"", mailA, webA].filter(Boolean).join(" &nbsp;·&nbsp; ")}</div>`;
+  const footer = omitFootzone ? wall : `${wall}<div class="footzone" style="background:${hex};color:#fff;text-align:center;padding:11px 16px;border-radius:6px;margin-top:14px">${ctaLine}${contactLine}</div>`;
+  return `<div class="frame" style="border-top:6px solid ${hex}">${header}${body}${footer}</div>`;
+}
+function docCSS(hex){ return `
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{margin:0;background:#fff;color:#1C2529;font-size:10.5px;font-family:'Open Sans','Segoe UI',Arial,sans-serif}
+  .ettl,.dayttl,.ti,table.ag th,.trkname,.cta{font-family:'Montserrat','Segoe UI',Arial,sans-serif}
+  .frame{border:1px solid #d9dce0;border-radius:8px;max-width:1040px;margin:8px auto;padding:12px 14px}
+  .ehead{display:flex;align-items:center;gap:14px;padding-bottom:4px;margin-bottom:6px}
+  .elogo{height:46px;max-width:230px}
+  .ettl{font-size:19px;font-weight:800;line-height:1.1}
+  .esub{font-weight:700;font-size:11.5px;margin-top:2px}
+  .cta{color:#fff;font-weight:800;text-align:center;padding:8px 12px;font-size:12.5px;border-radius:5px;margin:12px 0 5px}
+  .dayttl{font-weight:800;font-size:13px;margin:12px 0 5px}
+  .dayttl .dspan{font-weight:700;font-size:11px;margin-left:8px}
+  table.ag{width:100%;border-collapse:collapse}
+  table.ag th{font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#fff;background:${hex};text-align:left;padding:4px 8px}
+  table.ag th.tt{width:62px;border-right:1px solid rgba(255,255,255,.45)}
+  table.ag th.sk,table.ag td.sk{width:27%}
+  table.ag td.sk{vertical-align:top}
+  table.ag td{padding:5px 8px;vertical-align:top;border-bottom:1px solid #ececf0}
+  td.tt{font-weight:800;font-size:11px;white-space:nowrap;border-right:1px solid #e4e6ea}
+  td.tt .te{font-weight:500;color:#8a9098;font-size:9.5px}
+  .ti{font-weight:700;font-size:11.5px;color:#1C2529;margin-bottom:1px}
+  .sp{font-size:10px;color:#1C2529;margin-top:1px;line-height:1.3}
+  .sp .mlab{color:#8a9098}
+  .td{font-size:10px;color:#5a616a;margin-top:4px;text-align:justify;line-height:1.32}
+  .td .dp{margin:1px 0;font-style:italic}
+  .td ul.dl,.td ol.dl{margin:2px 0 0;padding-left:16px}
+  .td li{margin:1px 0}
+  .tracks-x{width:100%;border-collapse:collapse}
+  .tracks-x>tbody>tr>td{padding:0 6px;vertical-align:top}
+  .trkname{color:#fff;font-weight:700;font-size:11px;padding:4px 8px;border-radius:4px;margin-bottom:3px}
+  .wall{margin:8px 0 4px}
+  .wcap{font-weight:800;font-size:12px;margin-bottom:5px}
+  .wall img{max-width:100%;max-height:170px;width:auto;height:auto;display:block;margin:0 auto}
+  .foot{margin-top:14px;border-top:1px solid #e6e6ea;padding-top:9px;text-align:center}
+  .foot .fname{font-weight:700;color:#1C2529;font-size:11.5px}
+  .foot .fsub{color:#8a9098;font-size:10px;margin-top:2px}
+  tr{page-break-inside:avoid;break-inside:avoid}
+  .wall{page-break-inside:avoid;break-inside:avoid}
+  .ehead,.dayttl{page-break-after:avoid}
+  .wall,.foot,.cta{page-break-before:avoid}
+  @page{margin:10mm 9mm}
+`; }
+const FONTLINK='<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Open+Sans:ital,wght@0,400;0,600;1,400&display=swap">';
+function wordFooter(side,hex){
+  const cta=((side==="a"?S.ctaA:(S.ctaB||S.ctaA))||"").trim();
+  const url=((side==="a"?S.ctaUrlA:(S.ctaUrlB||S.ctaUrlA))||"").trim();
+  const cname=(S.contactName||"").trim(), cmail=(S.contactEmail||"").trim();
+  const ctaHtml = cta ? `<p style="margin:0;text-align:center;font-family:Montserrat,Arial;font-weight:bold;font-size:11pt;color:#ffffff">${url?`<a href="${esc(url)}" style="color:#ffffff;text-decoration:underline">${esc(cta)}</a>`:esc(cta)}</p>` : "";
+  const mailA = cmail?`<a href="mailto:${esc(cmail)}" style="color:#ffffff;text-decoration:underline">${esc(cmail)}</a>`:"";
+  const webA = `<a href="https://www.atainsights.com" style="color:#ffffff;text-decoration:underline">atainsights.com</a>`;
+  const contact=[cname?("<b>"+esc(cname)+"</b>"):"", mailA, webA].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
+  const contactHtml = `<p style="margin:${cta?'3pt':'0'} 0 0;text-align:center;font-family:Arial;font-size:9pt;color:#ffffff">${contact}</p>`;
+  return `<div style='mso-element:footer' id="f1"><table cellspacing="0" cellpadding="0" width="100%" style="border-collapse:collapse"><tr><td bgcolor="${hex}" style="background:${hex};padding:7pt 12pt">${ctaHtml}${contactHtml}</td></tr></table></div>`;
+}
+function buildDoc(side){ const hex=THEMES[S.themeKey].hex;
+  const wordPage=`@page WordSection1{size:595.3pt 841.9pt;margin:1.2cm 1cm 2.0cm 1cm;mso-footer:f1;mso-footer-margin:0.5cm;}div.WordSection1{page:WordSection1}`;
+  return `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${esc(S.titleA||"Agenda")}</title>${FONTLINK}<style>${docCSS(hex)}${wordPage}</style></head><body><div class="WordSection1">${buildBody(side,true)}${wordFooter(side,hex)}</div></body></html>`; }
+function bothSides(){ return S.titleB || S.days.some(d=>d.tracks.some(t=>t.blocks.some(b=>b.bT||b.bD))); }
+function exportWord(){ const sides=bothSides()?["a","b"]:["a"]; const files=sides.map(side=>{ const lc=side==="a"?S.langA:S.langB; return {blob:new Blob(['﻿'+buildDoc(side)],{type:"application/msword"}), name:slug(S.titleA)+"_"+lc+".doc"}; }); files.forEach((f,i)=>setTimeout(()=>downloadBlob(f.blob,f.name), i*500)); toast("Word file(s) downloaded — open in Word"); }
+function hexRgb(h){ h=(h||"#000000").replace("#",""); if(h.length===3) h=h.split("").map(c=>c+c).join(""); return [parseInt(h.slice(0,2),16)||0,parseInt(h.slice(2,4),16)||0,parseInt(h.slice(4,6),16)||0]; }
+function pdfFooter(pdf,pw,ph,rgb,cta,url,cname,cmail){
+  const ml=6, w=pw-2*ml; const hasC=!!(cname||cmail);
+  const bandH=(cta?5.2:0)+(hasC?5:0)+3.4; const yTop=ph-bandH-3;
+  pdf.setFillColor(rgb[0],rgb[1],rgb[2]); pdf.roundedRect(ml,yTop,w,bandH,1.5,1.5,"F");
+  pdf.setTextColor(255,255,255);
+  let y=yTop+4.6;
+  if(cta){ pdf.setFont("helvetica","bold"); pdf.setFontSize(10); const tw=pdf.getTextWidth(cta); const x=Math.max(ml+2,(pw-tw)/2);
+    if(url) pdf.textWithLink(cta,x,y,{url}); else pdf.text(cta,x,y); y+=5; }
+  if(hasC){ pdf.setFont("helvetica","normal"); pdf.setFontSize(8.5); const sep="   ·   ";
+    const segs=[]; if(cname) segs.push({t:cname}); if(cmail) segs.push({t:cmail,link:"mailto:"+cmail}); segs.push({t:"atainsights.com",link:"https://www.atainsights.com"});
+    let full=""; segs.forEach((s,i)=>{ full+=(i?sep:"")+s.t; }); const tw=pdf.getTextWidth(full); let x=Math.max(ml+2,(pw-tw)/2);
+    segs.forEach((s,i)=>{ if(i){ pdf.text(sep,x,y); x+=pdf.getTextWidth(sep); } if(s.link) pdf.textWithLink(s.t,x,y,{url:s.link}); else pdf.text(s.t,x,y); x+=pdf.getTextWidth(s.t); }); }
+}
+// ── Native .docx export (docx.js) ───────────────────────────────────────────
+function dataUrlToU8(d){ const b=atob((d||"").split(",")[1]||""); const u=new Uint8Array(b.length); for(let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return u; }
+function loadImgDims(src){ return new Promise(res=>{ const im=new Image(); im.onload=()=>res({w:im.naturalWidth||1,h:im.naturalHeight||1}); im.onerror=()=>res(null); im.src=src; }); }
+function downloadBlob(blob,name){
+  // Robust download: works in Firefox & locked-down browsers (a detached <a>.click() is
+  // silently ignored by Firefox — the link must be in the DOM). Falls back to msSaveBlob (old Edge/IE).
+  try{ if(window.navigator && navigator.msSaveOrOpenBlob){ navigator.msSaveOrOpenBlob(blob,name); return; } }catch(e){}
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=name; a.rel="noopener"; a.style.display="none";
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ try{ document.body.removeChild(a); }catch(e){} try{ URL.revokeObjectURL(url); }catch(e){} },1500);
+}
+function noBorders(){ const D=docx; const n={style:D.BorderStyle.NONE,size:0,color:"FFFFFF"}; return {top:n,bottom:n,left:n,right:n,insideHorizontal:n,insideVertical:n}; }
+function mdRuns(text,opt){ const D=docx; opt=opt||{}; const runs=[]; const s=text||""; const re=/(\*\*([^*]+)\*\*|\*([^*]+)\*)/g; let last=0,m;
+  while((m=re.exec(s))){ if(m.index>last) runs.push(new D.TextRun(Object.assign({},opt,{text:s.slice(last,m.index)}))); if(m[2]!=null) runs.push(new D.TextRun(Object.assign({},opt,{text:m[2],bold:true}))); else runs.push(new D.TextRun(Object.assign({},opt,{text:m[3],italics:true}))); last=re.lastIndex; }
+  if(last<s.length) runs.push(new D.TextRun(Object.assign({},opt,{text:s.slice(last)}))); if(!runs.length) runs.push(new D.TextRun(Object.assign({},opt,{text:""}))); return runs; }
+function descParas(text){ const D=docx; const out=[]; (text||"").split(/\r?\n/).forEach(raw=>{ const ln=raw.trim(); if(!ln) return; let m;
+  if((m=ln.match(/^[•\-–—·▪●‣◦]\s+(.*)$/))) out.push(new D.Paragraph({bullet:{level:0},spacing:{after:20},children:mdRuns(m[1],{size:19,color:"5A616A",font:"Open Sans"})}));
+  else out.push(new D.Paragraph({spacing:{after:20},children:mdRuns(ln,{size:19,color:"5A616A",italics:true,font:"Open Sans"})})); });
+  return out; }
+function docxTable(day,track,side,hex,L){ const D=docx; computeTrack(day,track);
+  const M={top:70,bottom:70,left:110,right:110};
+  const sep={style:D.BorderStyle.SINGLE,size:2,color:"ECECF0"}, none={style:D.BorderStyle.NONE,size:0,color:"FFFFFF"};
+  const TY={session:"E0392B",content:"2F80ED",panel:"EB5757",break:"F2C94C",exercise:"27AE60",networking:"9B51E0"};
+  const head=(t,w,rb)=>new D.TableCell({shading:{type:D.ShadingType.CLEAR,fill:hex,color:"auto"},margins:M,width:{size:w,type:D.WidthType.PERCENTAGE},borders:rb?{right:{style:D.BorderStyle.SINGLE,size:4,color:"FFFFFF"},top:none,left:none,bottom:none}:undefined,children:[new D.Paragraph({children:[new D.TextRun({text:t,bold:true,color:"FFFFFF",size:18,font:"Montserrat"})]})]});
+  const rows=[ new D.TableRow({tableHeader:true,children:[ head(L.time,13,true), head(L.prog,57), head(L.spk,30) ]}) ];
+  track.blocks.forEach((b,bi)=>{
+    const tc=TY[b.type]||"E0392B"; const alt=(bi%2)? "FAFBFC":"FFFFFF";
+    const base={margins:M,verticalAlign:D.VerticalAlign.TOP,shading:{type:D.ShadingType.CLEAR,fill:alt,color:"auto"}};
+    const timeCell=new D.TableCell(Object.assign({},base,{borders:{left:{style:D.BorderStyle.SINGLE,size:26,color:tc},bottom:sep,top:none,right:{style:D.BorderStyle.SINGLE,size:3,color:"D9DCE0"}},children:[ new D.Paragraph({children:[new D.TextRun({text:fmtMin(b._s),bold:true,size:22,color:"1C2529",font:"Open Sans"})]}), new D.Paragraph({children:[new D.TextRun({text:fmtMin(b._e),size:17,color:"8A9098",font:"Open Sans"})]}) ]}));
+    const prog=[ new D.Paragraph({spacing:{after:20},children:mdRuns((side==="a"?b.aT:b.bT)||"—",{bold:true,size:23,color:"1C2529",font:"Montserrat"})}) ];
+    descParas(side==="a"?b.aD:b.bD).forEach(p=>prog.push(p));
+    const progCell=new D.TableCell(Object.assign({},base,{children:prog}));
+    const sk=[]; parseSpeakers(b.spk).forEach(sp=>{ const r=[]; if(sp.mod) r.push(new D.TextRun({text:L.mod+": ",size:19,color:"8A9098",font:"Open Sans"})); r.push(new D.TextRun({text:sp.name,bold:true,size:19,color:"1C2529",font:"Open Sans"})); if(sp.role) r.push(new D.TextRun({text:" — "+sp.role,size:19,color:"1C2529",font:"Open Sans"})); if(sp.company) r.push(new D.TextRun({text:(sp.role?", ":" — ")+sp.company,bold:true,size:19,color:"1C2529",font:"Open Sans"})); sk.push(new D.Paragraph({spacing:{after:10},children:r})); });
+    if(!sk.length) sk.push(new D.Paragraph({children:[new D.TextRun({text:""})]}));
+    const skCell=new D.TableCell(Object.assign({},base,{children:sk}));
+    rows.push(new D.TableRow({cantSplit:true,children:[timeCell,progCell,skCell]}));
+  });
+  return new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE}, borders:{top:none,bottom:sep,left:none,right:none,insideHorizontal:sep,insideVertical:none}, rows});
+}
+async function buildDocxBlob(side){
+  const D=docx; const hex=(THEMES[S.themeKey].hex||"#E84830").replace("#","").toUpperCase();
+  const L=lab(side==="a"?S.langA:S.langB);
+  let logoU8=null,logoDim=null,wallU8=null,wallDim=null;
+  const logoSrc=headerLogo(); if(logoSrc){ logoDim=await loadImgDims(logoSrc); if(logoDim) logoU8=dataUrlToU8(logoSrc); }
+  if(S.wallImg){ wallDim=await loadImgDims(S.wallImg); if(wallDim) wallU8=dataUrlToU8(S.wallImg); }
+  const kids=[];
+  const T=side==="a"?S.titleA:(S.titleB||S.titleA); const loc=side==="a"?S.locA:(S.locB||S.locA);
+  const titlePs=[ new D.Paragraph({children:[new D.TextRun({text:T||"Event agenda",bold:true,size:40,color:"1C2529",font:"Montserrat"})]}) ];
+  if(loc) titlePs.push(new D.Paragraph({spacing:{before:30},children:[new D.TextRun({text:loc,bold:true,size:22,color:hex,font:"Montserrat"})]}));
+  if(logoU8){ const lh=46, lw=Math.max(1,Math.round(lh*logoDim.w/logoDim.h));
+    kids.push(new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE},borders:noBorders(),columnWidths:[2400,7600],rows:[ new D.TableRow({children:[
+      new D.TableCell({borders:noBorders(),verticalAlign:D.VerticalAlign.CENTER,width:{size:22,type:D.WidthType.PERCENTAGE},children:[ new D.Paragraph({children:[ new D.ImageRun({data:logoU8,transformation:{width:lw,height:lh}}) ]}) ]}),
+      new D.TableCell({borders:noBorders(),verticalAlign:D.VerticalAlign.CENTER,width:{size:78,type:D.WidthType.PERCENTAGE},children:titlePs}) ]}) ]}));
+  } else { titlePs.forEach(p=>kids.push(p)); }
+  for(const day of S.days){ computeAll(day);
+    const dh=[ (side==="a"?day.la:(day.lb||day.la)), day.date ].filter(Boolean).join(" · "); const span=daySpan(day);
+    kids.push(new D.Paragraph({spacing:{before:200,after:110}, border:{bottom:{style:D.BorderStyle.SINGLE,size:6,color:hex,space:3}}, children:[ new D.TextRun({text:dh,bold:true,size:26,color:"1C2529",font:"Montserrat"}), ...(span?[new D.TextRun({text:"   "+span,bold:true,size:22,color:hex,font:"Montserrat"})]:[]) ]}));
+    day.tracks.forEach(track=>{ if(day.tracks.length>1){ const nm=side==="a"?track.na:(track.nb||track.na); if(nm) kids.push(new D.Paragraph({shading:{type:D.ShadingType.CLEAR,fill:hex,color:"auto"},spacing:{before:80,after:30},children:[new D.TextRun({text:" "+nm+" ",bold:true,color:"FFFFFF",size:22,font:"Montserrat"})]})); }
+      kids.push(docxTable(day,track,side,hex,L)); });
+  }
+  if(wallU8){ let ww=640, wh=Math.round(ww*wallDim.h/wallDim.w); if(wh>165){ wh=165; ww=Math.round(wh*wallDim.w/wallDim.h); } kids.push(new D.Paragraph({spacing:{before:170,after:0}, alignment:D.AlignmentType.CENTER, keepLines:true, border:{top:{style:D.BorderStyle.SINGLE,size:6,color:hex,space:8}}, children:[ new D.ImageRun({data:wallU8,transformation:{width:ww,height:Math.max(1,wh)}}) ]})); }
+  // footer band (repeats on every page) — CTA + contact inside one colour strip, with links
+  const cta=((side==="a"?S.ctaA:(S.ctaB||S.ctaA))||"").trim(); const url=((side==="a"?S.ctaUrlA:(S.ctaUrlB||S.ctaUrlA))||"").trim();
+  const cname=(S.contactName||"").trim(), cmail=(S.contactEmail||"").trim();
+  const bandKids=[];
+  if(cta){ bandKids.push(new D.Paragraph({alignment:D.AlignmentType.CENTER,children:[ url? new D.ExternalHyperlink({link:url,children:[new D.TextRun({text:cta,bold:true,color:"FFFFFF",size:22,font:"Montserrat",underline:{}})]}) : new D.TextRun({text:cta,bold:true,color:"FFFFFF",size:22,font:"Montserrat"}) ]})); }
+  const c2=[]; if(cname) c2.push(new D.TextRun({text:cname,bold:true,color:"FFFFFF",size:18,font:"Open Sans"}));
+  if(cmail){ if(c2.length) c2.push(new D.TextRun({text:"   ·   ",color:"FFFFFF",size:18,font:"Open Sans"})); c2.push(new D.ExternalHyperlink({link:"mailto:"+cmail,children:[new D.TextRun({text:cmail,color:"FFFFFF",size:18,font:"Open Sans",underline:{}})]})); }
+  if(c2.length) c2.push(new D.TextRun({text:"   ·   ",color:"FFFFFF",size:18,font:"Open Sans"}));
+  c2.push(new D.ExternalHyperlink({link:"https://www.atainsights.com",children:[new D.TextRun({text:"atainsights.com",color:"FFFFFF",size:18,font:"Open Sans",underline:{}})]}));
+  bandKids.push(new D.Paragraph({alignment:D.AlignmentType.CENTER,spacing:{before:cta?40:0},children:c2}));
+  const fch=[ new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE},borders:noBorders(),rows:[ new D.TableRow({children:[ new D.TableCell({borders:noBorders(),shading:{type:D.ShadingType.CLEAR,fill:hex,color:"auto"},margins:{top:90,bottom:90,left:140,right:140},children:bandKids}) ]}) ]}) ];
+  const doc=new D.Document({ sections:[{ properties:{ page:{ size:{width:11906,height:16838}, margin:{top:680,right:567,bottom:1350,left:567,footer:360} } }, footers:{ default:new D.Footer({children:fch}) }, children:kids } ] });
+  return await D.Packer.toBlob(doc);
+}
+async function exportDocx(){
+  if(typeof docx==="undefined"){ toast("Need internet for .docx — using .doc instead"); exportWord(); return; }
+  try{ toast("Building .docx…"); const sides=bothSides()?["a","b"]:["a"];
+    for(const side of sides){ const blob=await buildDocxBlob(side); downloadBlob(blob, slug(S.titleA||"agenda")+"_"+(side==="a"?S.langA:S.langB)+".docx"); }
+    toast(".docx downloaded"); }catch(e){ toast(".docx failed: "+(e.message||e)); }
+}
+async function downloadPdf(){
+  if(typeof html2pdf==="undefined"){ toast("Need internet to build the PDF file — opening Print instead."); exportPdf(); return; }
+  const both=bothSides(); const sides=both?["a","b"]:["a"];
+  for(const side of sides){ const lc=side==="a"?S.langA:S.langB; const hex=THEMES[S.themeKey].hex;
+    const overlay=document.createElement("div");
+    overlay.style.cssText="position:fixed;inset:0;background:#fff;z-index:2147483647;overflow:auto";
+    overlay.innerHTML=`<div style="padding:8px 12px;font:700 13px Arial;color:#888">Generating PDF…</div><style>${docCSS(hex)}</style>`+buildBody(side,true);
+    document.body.appendChild(overlay);
+    const frameEl=overlay.querySelector(".frame")||overlay;
+    const fz=frameEl.querySelector(".footzone"); if(fz) fz.remove();   // safety: never an in-content footer (drawn per page)
+    const cta=((side==="a"?S.ctaA:(S.ctaB||S.ctaA))||"").trim();
+    const url=((side==="a"?S.ctaUrlA:(S.ctaUrlB||S.ctaUrlA))||"").trim();
+    const cname=(S.contactName||"").trim(), cmail=(S.contactEmail||"").trim(); const rgb=hexRgb(hex);
+    try{
+      if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
+      await new Promise(r=>setTimeout(r,200));
+      await html2pdf().set({ margin:[7,6,22,6], filename:slug(S.titleA||"agenda")+"_"+lc+".pdf", image:{type:"jpeg",quality:0.97}, html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",logging:false}, jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}, pagebreak:{mode:["css","legacy"]} })
+        .from(frameEl).toPdf().get("pdf").then(function(pdf){
+          const n=pdf.internal.getNumberOfPages(); const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
+          const skipLast=!!S.wallImg;   // last page shows the logo wall instead of the footer
+          for(let i=1;i<=n;i++){ if(skipLast && i===n) continue; pdf.setPage(i); pdfFooter(pdf,pw,ph,rgb,cta,url,cname,cmail); }
+        }).save();
+    }catch(e){ toast("PDF failed: "+(e.message||e)); }
+    finally{ document.body.removeChild(overlay); }
+  }
+  toast("PDF downloaded — footer on every page");
+}
+function exportPdf(){ const both=bothSides(); const sides=both?["a","b"]:["a"]; let inner=""; sides.forEach((side,i)=>{ inner+=(i>0?'<div style="page-break-before:always"></div>':'')+buildBody(side); }); const hex=THEMES[S.themeKey].hex; const w=window.open("","_blank"); if(!w){ toast("Pop-up blocked — allow pop-ups or use Word"); return; } w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(S.titleA||"Agenda")}</title>${FONTLINK}<style>${docCSS(hex)}</style></head><body>${inner}</body></html>`); w.document.close(); const go=()=>{ try{ w.focus(); w.print(); }catch(e){} }; w.onload=go; setTimeout(go,650); }
+
+// ── Toast / top bar ─────────────────────────────────────────────────────────
+let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("show"),2800); }
+function fillSelect(sel,obj,val,fmt){ sel.innerHTML=Object.entries(obj).map(([k,v])=>`<option value="${k}" ${k===val?"selected":""}>${fmt(k,v)}</option>`).join(""); }
+function initStatic(){
+  $("theme").onchange=e=>{ S.themeKey=e.target.value; render(); autosave(); };
+  $("langA").onchange=e=>{ S.langA=e.target.value; render(); autosave(); };
+  $("langB").onchange=e=>{ S.langB=e.target.value; render(); autosave(); };
+  $("btnTrAll").onclick=translateAll;
+  $("btnCheck").onclick=checkText;
+  $("btnSave").onclick=()=>{ autosave(); if(curTeamFile){ saveTeamFile(true); } else { toast("Saved to Projects"); } };
+  window.addEventListener("beforeunload",()=>{ if(teamDir&&curTeamFile){ try{ teamDir.removeEntry(curTeamFile+".lock"); }catch(e){} } });
+  $("btnOpen").onclick=()=>{ view={type:"home"}; render(); };
+  const brand=document.querySelector("aside .brand"); if(brand){ brand.style.cursor="pointer"; brand.title="Home — all agendas"; brand.onclick=()=>{ view={type:"home"}; render(); }; }
+  $("btnNew").onclick=newProject;
+  $("btnWord").onclick=exportWord; $("btnDocx").onclick=exportDocx; $("btnPdf").onclick=downloadPdf; $("btnPrint").onclick=exportPdf;
+  document.addEventListener("click", closeMenus);
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+(function boot(){
+  restoreTeamFolder();  // re-acquire the shared folder handle (permission re-checked when the Team tab opens)
+  // First run: seed the bundled sample project (e.g. Invest) once, so colleagues see it ready
+  try{ if(window.RENMAD_SEED && !localStorage.getItem("renmad_seeded_v2")){ const a0=loadProjects(); const nm=(window.RENMAD_SEED.titleA||window.RENMAD_SEED.name||"Sample"); if(!a0.some(p=>(p.name||"")===nm || ((p.data&&p.data.titleA)||"")===nm)){ a0.push({id:uid(),name:nm,updated:Date.now(),data:window.RENMAD_SEED}); saveProjects(a0); } localStorage.setItem("renmad_seeded_v2","1"); } }catch(e){}
+  const arr=loadProjects(); let id=null; try{ id=localStorage.getItem(CKEY); }catch(e){}
+  const cur=arr.find(p=>p.id===id) || arr.sort((a,b)=>b.updated-a.updated)[0];
+  if(cur){ S=cur.data; curId=cur.id; } else { S=blankState(); curId=uid(); }
+  normalize();
+  view={type:"home"};
+  initStatic(); render(); autosave();
+})();
+</script>
+</body>
+</html>
