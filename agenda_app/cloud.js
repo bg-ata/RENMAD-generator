@@ -1,49 +1,56 @@
-/* RENMAD Agenda — cloud mode.
+/* RENMAD Agenda — cloud mode (team passcode login).
    Loaded LAST, so it overrides the app's local-storage functions with online ones.
-   - Login: passwordless email link, restricted to @ata.email.
+   - Login: one shared team PASSCODE (no emails, no rate limits, no expiring links).
+     The passcode is the password of the shared SUPA_SHARED_EMAIL account, so it still
+     unlocks a real, secured database (outsiders without the passcode get nothing).
+   - Identity: each person types their own @ata.email once → shown as "last edited by".
    - Storage: one shared Supabase table = one place online for the whole team.
    - Live: realtime refresh so colleagues see each other's agendas appear/update.
    If config is missing, it stays out of the way and the app runs in local mode. */
 (function(){
-  if(!window.SUPA_URL || !window.SUPA_KEY || !window.supabase){ return; } // not configured → local mode
+  if(!window.SUPA_URL || !window.SUPA_KEY || !window.supabase || !window.SUPA_SHARED_EMAIL){ return; }
   const DOMAIN = (window.SUPA_DOMAIN||"ata.email").toLowerCase();
-  const sb = window.supabase.createClient(window.SUPA_URL, window.SUPA_KEY, { auth:{ persistSession:true, detectSessionInUrl:true, autoRefreshToken:true } });
-  const REDIRECT = location.origin + location.pathname;   // come back to this exact app page after the email link
+  const SHARED_EMAIL = window.SUPA_SHARED_EMAIL;
+  const sb = window.supabase.createClient(window.SUPA_URL, window.SUPA_KEY, { auth:{ persistSession:true, autoRefreshToken:true } });
   let CLOUD = [];                 // cache of all agendas: {id,name,updated,data,by}
   let CURRENT_EMAIL = "";
   const newId = ()=> (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.round(performance.now()*1000));
 
-  // ── overlay (login / loading / denied) ────────────────────────────────────
+  // ── overlay (login / loading) ─────────────────────────────────────────────
   const ov = document.createElement("div");
   ov.id = "cloudOverlay";
   ov.style.cssText = "position:fixed;inset:0;z-index:2147483646;background:#1c2529;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Open Sans',Arial,sans-serif";
   document.body.appendChild(ov);
-  const cardCSS = "background:#fff;color:#1c2529;max-width:420px;width:90%;padding:30px 28px;border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.4)";
-  const btnCSS = "background:#E0392B;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-weight:700;font-size:15px;cursor:pointer;width:100%";
+  const cardCSS = "background:#fff;color:#1c2529;max-width:430px;width:90%;padding:30px 28px;border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.4)";
+  const inpCSS  = "width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d9dce0;border-radius:8px;font-size:15px;margin-bottom:10px";
+  const btnCSS  = "background:#E0392B;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-weight:700;font-size:15px;cursor:pointer;width:100%";
   function showLoading(msg){ ov.style.display="flex"; ov.innerHTML='<div style="'+cardCSS+';text-align:center"><div style="font-weight:800;font-size:18px;margin-bottom:8px">RENMAD Agenda</div><div style="color:#5a616a">'+(msg||"Loading…")+'</div></div>'; }
-  function showDenied(email){ ov.style.display="flex"; ov.innerHTML='<div style="'+cardCSS+'"><div style="font-weight:800;font-size:18px;margin-bottom:6px">Not allowed</div><p style="color:#5a616a">The address <b>'+esc(email)+'</b> isn’t an @'+esc(DOMAIN)+' account, so it can’t access the team agendas.</p><button id="cloLogout" style="'+btnCSS+';background:#5a616a;margin-top:8px">Sign out & try another email</button></div>'; document.getElementById("cloLogout").onclick=()=>sb.auth.signOut().then(()=>location.reload()); }
-  function showLogin(prefill){
+  function showLogin(prefillEmail){
     ov.style.display="flex";
     ov.innerHTML='<div style="'+cardCSS+'">'
       +'<div style="font-weight:800;font-size:20px;margin-bottom:2px">RENMAD Agenda</div>'
-      +'<div style="color:#5a616a;margin-bottom:18px;font-size:14px">Sign in with your ATA email — we’ll send you a one-click link, no password needed.</div>'
-      +'<input id="cloEmail" type="email" placeholder="you@'+esc(DOMAIN)+'" value="'+esc(prefill||"")+'" style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d9dce0;border-radius:8px;font-size:15px;margin-bottom:10px">'
-      +'<button id="cloSend" style="'+btnCSS+'">Email me a login link</button>'
+      +'<div style="color:#5a616a;margin-bottom:18px;font-size:14px">Enter the team passcode to open the shared agendas.</div>'
+      +'<label style="font-size:12px;color:#8a9098;font-weight:600">Your ATA email</label>'
+      +'<input id="cloEmail" type="email" placeholder="you@'+esc(DOMAIN)+'" value="'+esc(prefillEmail||"")+'" style="'+inpCSS+';margin-top:4px">'
+      +'<label style="font-size:12px;color:#8a9098;font-weight:600">Team passcode</label>'
+      +'<input id="cloPass" type="password" placeholder="••••••••" style="'+inpCSS+';margin-top:4px">'
+      +'<button id="cloGo" style="'+btnCSS+'">Enter</button>'
       +'<div id="cloMsg" style="margin-top:12px;font-size:13px;color:#5a616a;min-height:18px"></div>'
       +'</div>';
-    const inp=document.getElementById("cloEmail"), btn=document.getElementById("cloSend"), msg=document.getElementById("cloMsg");
-    inp.focus();
-    const send=async()=>{
-      const email=(inp.value||"").trim();
-      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ msg.textContent="Please enter a valid email."; return; }
-      if(!email.toLowerCase().endsWith("@"+DOMAIN)){ msg.style.color="#c0392b"; msg.textContent="Use your @"+DOMAIN+" work email."; return; }
-      btn.disabled=true; msg.style.color="#5a616a"; msg.textContent="Sending…";
-      const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: REDIRECT } });
+    const em=document.getElementById("cloEmail"), pw=document.getElementById("cloPass"), btn=document.getElementById("cloGo"), msg=document.getElementById("cloMsg");
+    (prefillEmail?pw:em).focus();
+    const go=async()=>{
+      const email=(em.value||"").trim();
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !email.toLowerCase().endsWith("@"+DOMAIN)){ msg.style.color="#c0392b"; msg.textContent="Enter your @"+DOMAIN+" email."; return; }
+      const code=pw.value||""; if(!code){ msg.style.color="#c0392b"; msg.textContent="Enter the team passcode."; return; }
+      btn.disabled=true; msg.style.color="#5a616a"; msg.textContent="Checking…";
+      const { error } = await sb.auth.signInWithPassword({ email: SHARED_EMAIL, password: code });
       btn.disabled=false;
-      if(error){ msg.style.color="#c0392b"; msg.textContent=error.message; }
-      else { msg.style.color="#2e7d32"; msg.innerHTML="✓ Check your inbox — click the link we sent to <b>"+esc(email)+"</b> to open the agendas. (You can close this tab.)"; }
+      if(error){ msg.style.color="#c0392b"; msg.textContent=/invalid/i.test(error.message)?"Wrong passcode — try again.":error.message; return; }
+      try{ localStorage.setItem("renmad_user_email", email); }catch(e){}
+      CURRENT_EMAIL=email; proceed();
     };
-    btn.onclick=send; inp.onkeydown=(e)=>{ if(e.key==="Enter") send(); };
+    btn.onclick=go; pw.onkeydown=(e)=>{ if(e.key==="Enter") go(); }; em.onkeydown=(e)=>{ if(e.key==="Enter") pw.focus(); };
   }
   function hideOverlay(){ ov.style.display="none"; }
 
@@ -90,28 +97,30 @@
     let c=document.getElementById("cloChip");
     if(!c){ c=document.createElement("div"); c.id="cloChip"; c.style.cssText="position:fixed;bottom:10px;left:12px;z-index:60;background:#fff;border:1px solid #e6e8ec;border-radius:20px;padding:5px 10px;font:600 12px 'Open Sans',Arial;color:#5a616a;box-shadow:0 2px 10px rgba(0,0,0,.08);display:flex;gap:8px;align-items:center"; document.body.appendChild(c); }
     c.innerHTML='👤 '+esc(email)+' <a href="#" id="cloOut" style="color:#E0392B;text-decoration:none;font-weight:700">Sign out</a>';
-    document.getElementById("cloOut").onclick=(e)=>{ e.preventDefault(); sb.auth.signOut(); };
+    document.getElementById("cloOut").onclick=(e)=>{ e.preventDefault(); try{ localStorage.removeItem("renmad_user_email"); }catch(x){} sb.auth.signOut(); };
   }
   function subscribeRealtime(){
     try{ sb.channel("agendas-live").on("postgres_changes",{event:"*",schema:"public",table:"agendas"}, async ()=>{ await refreshCloud(); if(view && view.type==="home") render(); }).subscribe(); }catch(e){}
   }
 
-  // ── boot ──────────────────────────────────────────────────────────────────
-  async function start(){
-    showLoading("Signing you in…");
-    let session=null;
-    try{ session=(await sb.auth.getSession()).data.session; }catch(e){}
-    if(!session){ showLogin(); return; }
-    const email=(session.user && session.user.email)||"";
-    if(!email.toLowerCase().endsWith("@"+DOMAIN)){ showDenied(email); return; }
-    CURRENT_EMAIL=email;
+  async function proceed(){
     installCloudStore();
     showLoading("Loading agendas…");
     await refreshCloud();
     const arr=CLOUD.slice().sort((a,b)=>b.updated-a.updated);
     if(arr.length){ S=arr[0].data; normalize(); curId=arr[0].id; } else { S=blankState(); curId=newId(); }
     view={type:"home"}; render();
-    userChip(email); hideOverlay(); subscribeRealtime();
+    userChip(CURRENT_EMAIL); hideOverlay(); subscribeRealtime();
+  }
+
+  // ── boot ──────────────────────────────────────────────────────────────────
+  async function start(){
+    showLoading("Loading…");
+    let session=null;
+    try{ session=(await sb.auth.getSession()).data.session; }catch(e){}
+    let savedEmail=""; try{ savedEmail=localStorage.getItem("renmad_user_email")||""; }catch(e){}
+    if(session && savedEmail){ CURRENT_EMAIL=savedEmail; proceed(); }
+    else { showLogin(savedEmail); }
   }
   sb.auth.onAuthStateChange((event)=>{ if(event==="SIGNED_OUT"){ location.reload(); } });
   start();
