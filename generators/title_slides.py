@@ -28,7 +28,7 @@ from pptx.oxml import parse_xml
 from pptx.oxml.ns import qn, nsdecls
 
 from config import THEMES
-from utils import icons
+from utils import svg_icons
 
 # ── Geometry (16:9 widescreen) ────────────────────────────────────────────────
 SLIDE_W = Inches(13.333)
@@ -822,16 +822,12 @@ def _strip_emoji(s: str) -> str:
 
 
 def _break_icon(kind: str):
-    fn = {
-        "registration": icons.badge, "break": icons.coffee, "lunch": icons.meal,
-        "cocktail": icons.cocktail, "networking": icons.people,
-        "welcome": icons.clock, "closing": icons.clock,
+    name = {
+        "registration": "badge", "break": "coffee", "lunch": "meal",
+        "cocktail": "cocktail", "networking": "people",
+        "welcome": "clock", "closing": "clock",
     }.get(kind)
-    if not fn:
-        return None
-    # Supersample ×4 then downscale → crisp, anti-aliased glyph.
-    big = fn(960, (255, 255, 255))
-    return big.resize((240, 240), Image.LANCZOS)
+    return svg_icons.render(name, 600, (255, 255, 255)) if name else None
 
 
 def add_break_slide(prs: Presentation, theme_key: str, session: dict,
@@ -847,31 +843,30 @@ def add_break_slide(prs: Presentation, theme_key: str, session: dict,
     cx = SLIDE_W // 2
     icon = _break_icon(session.get("break_kind"))
     if icon is not None:
-        # a thin white ring framing the icon — gives the flat slide some structure
-        ring_d = Inches(2.5)
+        # big icon inside a thin white ring — fills the upper half of the slide
+        ring_d = Inches(3.1)
+        ring_top = Inches(0.95)
         ring = slide.shapes.add_shape(MSO_SHAPE.OVAL,
-                                      int(cx - ring_d / 2), Inches(1.05), ring_d, ring_d)
+                                      int(cx - ring_d / 2), ring_top, ring_d, ring_d)
         ring.fill.background()
         ring.line.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        ring.line.width = Pt(2.0)
+        ring.line.width = Pt(2.25)
         ring.shadow.inherit = False
-        try:
-            ring.line.fill.fore_color.brightness = 0  # keep solid white
-        except Exception:
-            pass
-        _add_picture_fit(slide, icon, cx, Inches(1.72), 1.18, 1.18)
+        icon_in = 1.65
+        icon_top = ring_top + Emu(int((ring_d - Inches(icon_in)) / 2))
+        _add_picture_fit(slide, icon, cx, icon_top, icon_in, icon_in)
 
     title = _strip_emoji(session.get("title", "")).upper()
     title2 = _strip_emoji(session.get("title_2", "")).upper()
-    paras = [[(title, F_BLACK, 50, WHITE, True)]]
+    paras = [[(title, F_BLACK, 52, WHITE, True)]]
     if title2 and title2 != title:
-        paras.append([(title2, F_BOLD, 30, RGBColor(0xFF, 0xE8, 0xDC), False)])
-    _add_text(slide, Inches(1.0), Inches(4.05), Inches(11.33), Inches(1.7), paras)
+        paras.append([(title2, F_BOLD, 31, RGBColor(0xFF, 0xE8, 0xDC), False)])
+    _add_text(slide, Inches(1.0), Inches(4.35), Inches(11.33), Inches(1.6), paras)
 
     t = (session.get("time") or "").strip()
     if t:
         t = re.sub(r"\s*[|\n]\s*", " – ", t).strip()
-        _add_text(slide, Inches(1.0), Inches(5.95), Inches(11.33), Inches(0.7),
+        _add_text(slide, Inches(1.0), Inches(6.15), Inches(11.33), Inches(0.7),
                   [[(t, F_BOLD, 26, RGBColor(0xFF, 0xE8, 0xDC), True)]])
     return slide
 
@@ -898,9 +893,19 @@ def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
     _no_line(bg); bg.shadow.inherit = False
     cx = SLIDE_W // 2
 
-    icon = {"mute": icons.phone, "wifi": icons.wifi, "qr": icons.qr}.get(kind)
+    icon = svg_icons.render({"mute": "phone"}.get(kind, kind), 600, (255, 255, 255))
     if icon is not None:
-        _add_picture_fit(slide, icon(240, (255, 255, 255)), cx, Inches(1.5), 1.3, 1.3)
+        ring_d = Inches(2.3)
+        ring_top = Inches(0.65)
+        ring = slide.shapes.add_shape(MSO_SHAPE.OVAL,
+                                      int(cx - ring_d / 2), ring_top, ring_d, ring_d)
+        ring.fill.background()
+        ring.line.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        ring.line.width = Pt(2.25)
+        ring.shadow.inherit = False
+        icon_in = 1.25
+        icon_top = ring_top + Emu(int((ring_d - Inches(icon_in)) / 2))
+        _add_picture_fit(slide, icon, cx, icon_top, icon_in, icon_in)
 
     if kind == "mute":
         label = ls.get("mute_phone", "Mute your phone").upper()
