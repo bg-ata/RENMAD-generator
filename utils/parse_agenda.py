@@ -121,10 +121,29 @@ def _looks_like_name(s: str) -> bool:
 
 
 def _parse_speaker_line(line: str) -> dict | None:
-    """'Name, Role, Company' → dict, or None if it isn't a usable speaker."""
+    """'Name, Role, Company' OR 'Name — Role, Company' → dict, or None.
+
+    Two agenda dialects: roles separated from the name by a comma (old format)
+    or by a spaced em/en-dash / hyphen (newer 3-column agendas). The dash must be
+    surrounded by spaces, so hyphenated names (Jean-Pierre) and roles (Co-Head)
+    stay intact."""
     line = _strip(line)
     if not line or _is_tbc(line):
         return None
+
+    md = re.match(r"^(.+?)\s+[—–-]\s+(.+)$", line)
+    if md:
+        name = md.group(1).strip()
+        rest = md.group(2).strip()
+        if _looks_like_name(name) and not _is_tbc(name):
+            rp = [p.strip() for p in rest.split(",") if p.strip()]
+            if len(rp) >= 2:
+                return {"name": name, "role": ", ".join(rp[:-1]),
+                        "company": rp[-1], "is_moderator": False}
+            if len(rp) == 1:
+                return {"name": name, "role": "", "company": rp[0],
+                        "is_moderator": False}
+
     parts = [p.strip() for p in line.split(",")]
     name = parts[0]
     if _is_tbc(name) or not _looks_like_name(name):
@@ -340,6 +359,18 @@ def _extract_logo_wall(path: str):
     return best
 
 
+_HEADER_TIME_WORDS = {"time", "hora", "ora", "godzina", "horario", "orario", "tempo"}
+_HEADER_PROG_WORDS = ("programme", "program", "agenda", "session", "sessions",
+                      "programa", "programma", "topic", "content")
+
+
+def _is_header_row(time: str, block: str) -> bool:
+    """True for a table's column-header row (Time | Programme | Speakers)."""
+    t = (time or "").strip().lower()
+    b = (block or "").strip().lower().split("\n")[0].strip()
+    return t in _HEADER_TIME_WORDS or any(b == w or b.startswith(w) for w in _HEADER_PROG_WORDS)
+
+
 def parse_agenda_docx(path: str) -> dict:
     """Open a .docx agenda and parse it. Uses the first table found, and also
     extracts event meta (title, registration URL) + the sponsor logo wall."""
@@ -358,12 +389,22 @@ def parse_agenda_docx(path: str) -> dict:
     rows: list[tuple[str, str]] = []
     if doc.tables:
         tbl = doc.tables[0]
-        for row in tbl.rows:
+        for ri, row in enumerate(tbl.rows):
             cells = row.cells
             if len(cells) < 2:
                 continue
             time = _strip(cells[0].text)
             block = cells[1].text
+            # Header row ("Time | Programme | Speakers") — skip.
+            if ri == 0 and _is_header_row(time, block):
+                continue
+            # Some agendas put speakers in a dedicated 3rd column instead of an
+            # inline "Speakers:" marker. Fold that column into the block so the
+            # normal speaker parsing picks it up.
+            if len(cells) >= 3:
+                spk = _strip(cells[2].text)
+                if spk:
+                    block = block.rstrip() + "\nSpeakers:\n" + cells[2].text.strip()
             rows.append((time, block))
 
     ag = parse_agenda_rows(rows, event_title=event_title)
