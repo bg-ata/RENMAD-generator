@@ -8,12 +8,9 @@ ONE choice drives everything: **Marketing** vs **Event**.
                  only. Produces TWO separate monolingual decks (one per language).
                  Drives the LinkedIn "progressing panel" assets.
 
-  • Event      → title in a BOTTOM band (photos pushed high for the live screen),
-                 WITH transition / break dividers + cover + utility slides.
-                 Produces ONE bilingual deck (both languages on each title band).
-
-Everything else (title position, transitions, deck count, language layout) follows
-automatically from that one pick — the page stays deliberately minimal.
+  • Event      → WITH transition / break dividers + cover + utility slides, one
+                 bilingual deck. The title band can sit at the bottom (default) or
+                 the top, depending on where the screen is in the room.
 
 All output is a fully-editable PPTX: photos are movable/replaceable pictures and
 every name / role / title is native editable text — nothing is baked into a flat
@@ -39,11 +36,12 @@ from generators.title_slides import build_event_deck
 st.set_page_config(page_title="Title Slides", page_icon="🎬", layout="wide")
 st.title("🎬 Title Slides")
 st.caption(
-    "Sube la agenda del evento y genera las **slides de título** (PPTX 100 % editable). "
-    "Solo eliges una cosa: **Marketing** o **Evento** — todo lo demás se ajusta solo."
+    "Upload the event agenda and generate the on-screen **title slides** "
+    "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
+    "everything else is set for you."
 )
 
-LANGS = {"en": "English", "es": "Español", "it": "Italiano", "pl": "Polski"}
+LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -73,7 +71,7 @@ def _parse_uploaded_agenda(uploaded) -> dict | None:
         try:
             import openpyxl
         except ImportError:
-            st.error("Para leer Excel hace falta `openpyxl`. Sube la agenda en Word (.docx) o CSV.")
+            st.error("Reading Excel needs `openpyxl`. Upload the agenda as Word (.docx) or CSV.")
             return None
         wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
         ws = wb.active
@@ -82,7 +80,7 @@ def _parse_uploaded_agenda(uploaded) -> dict | None:
             if r and len(r) >= 2 and (r[0] or r[1]):
                 rows.append((str(r[0] or ""), str(r[1] or "")))
         return parse_agenda_rows(rows)
-    st.error(f"Formato no soportado: {uploaded.name}. Usa Word (.docx), Excel (.xlsx) o CSV.")
+    st.error(f"Unsupported format: {uploaded.name}. Use Word (.docx), Excel (.xlsx) or CSV.")
     return None
 
 
@@ -92,12 +90,12 @@ def _agenda_summary(agenda: dict) -> str:
     n_break = sum(1 for s in sessions if s.get("type") == "break")
     n_spk = sum(len([sp for sp in s.get("speakers", []) if (sp.get("name") or "").strip()])
                 for s in sessions)
-    return f"{n_talk} sesiones · {n_spk} ponentes · {n_break} pausas/transiciones"
+    return f"{n_talk} sessions · {n_spk} speakers · {n_break} breaks/transitions"
 
 
 def _merge_bilingual(primary: dict, secondary: dict) -> dict:
     """Build ONE agenda whose sessions carry both languages on the title band:
-    primary title on `title` (top, bigger) + secondary on `title_2` (below).
+    primary title on `title` (bigger) + secondary on `title_2` (below).
     Sessions are matched by position; if counts differ we match what we can."""
     merged = {k: v for k, v in primary.items()}
     p_sessions = primary.get("sessions", [])
@@ -132,46 +130,57 @@ def _match_pool(agenda: dict, pool: dict) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1 · THE ONE CHOICE
+# 1 · MARKETING OR EVENT?
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("1 · ¿Marketing o Evento?")
+st.header("1 · Marketing or Event?")
 
-MODE_MARKETING = "📣 Marketing  ·  título arriba · sin transiciones · 2 decks (uno por idioma)"
-MODE_EVENT     = "🎤 Evento  ·  título abajo · con transiciones · 1 deck bilingüe"
+MODE_MARKETING = "📣 Marketing  ·  title on top · no transitions · 2 decks (one per language)"
+MODE_EVENT     = "🎤 Event  ·  with transitions · 1 bilingual deck"
 
-mode = st.radio("Tipo de slides", [MODE_MARKETING, MODE_EVENT],
+mode = st.radio("Type of slides", [MODE_MARKETING, MODE_EVENT],
                 key="ts_mode", label_visibility="collapsed")
 is_event = mode == MODE_EVENT
 
+event_band = "bottom"
+if is_event:
+    band_label = st.radio(
+        "Where should the session title sit on the event slides?",
+        ["Bottom (default)", "Top"],
+        horizontal=True, key="ts_band",
+        help="Pick based on where the screen is in the room — a low screen often "
+             "gets blocked at the bottom by people, so the title can go on top.",
+    )
+    event_band = "top" if band_label == "Top" else "bottom"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2 · EVENT BASICS
+# 2 · BASICS
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("2 · Datos")
+st.header("2 · Details")
 
 c1, c2, c3 = st.columns([1.4, 1, 1])
 theme_keys = sorted(THEMES.keys(), key=lambda k: THEMES[k]["name"])
-theme_key = c1.selectbox("Tema (color)", theme_keys,
+theme_key = c1.selectbox("Theme (colour)", theme_keys,
                          format_func=lambda k: THEMES[k]["name"], key="ts_theme")
-lang1 = c2.selectbox("Idioma 1 (principal)", list(LANGS.keys()),
+lang1 = c2.selectbox("Language 1 (primary)", list(LANGS.keys()),
                      format_func=lambda k: LANGS[k], index=0, key="ts_lang1")
-lang2 = c3.selectbox("Idioma 2 (opcional)", ["—"] + list(LANGS.keys()),
-                     format_func=lambda k: "— ninguno —" if k == "—" else LANGS[k],
+lang2 = c3.selectbox("Language 2 (optional)", ["—"] + list(LANGS.keys()),
+                     format_func=lambda k: "— none —" if k == "—" else LANGS[k],
                      index=0, key="ts_lang2")
 has_lang2 = lang2 != "—"
 
 if is_event and not has_lang2:
-    st.info("ℹ️ El deck de **Evento** es bilingüe. Sin idioma 2 saldrá un deck en un solo idioma.")
+    st.info("ℹ️ The **Event** deck is bilingual. Without a 2nd language you'll get a single-language deck.")
 if not is_event and not has_lang2:
-    st.caption("Con un solo idioma, Marketing genera **1 deck**.")
+    st.caption("With one language, Marketing produces **1 deck**.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 3 · AGENDAS
 # ══════════════════════════════════════════════════════════════════════════════
 st.header("3 · Agenda(s)")
-st.caption("Word (.docx), Excel (.xlsx) o CSV. Sube una agenda por idioma — "
-           "se emparejan por orden de sesión.")
+st.caption("Word (.docx), Excel (.xlsx) or CSV. Upload one agenda per language — "
+           "they're matched by session order.")
 
 ac1, ac2 = st.columns(2)
 ag_file1 = ac1.file_uploader(f"Agenda · {LANGS[lang1]}", type=["docx", "xlsx", "xls", "csv"],
@@ -193,55 +202,55 @@ if agenda2:
 # ══════════════════════════════════════════════════════════════════════════════
 # 4 · PHOTOS & LOGOS
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("4 · Fotos y logos")
+st.header("4 · Photos & logos")
 st.caption(
-    "Sube las fotos de los ponentes y los logos de empresa juntos. Se emparejan "
-    "automáticamente por el **nombre del archivo** (p. ej. `Mario_Rossi.jpg`, "
-    "`Enel_logo.png`). Lo que no encaje sale con un círculo de iniciales que puedes "
-    "cambiar en PowerPoint."
+    "Upload the speaker photos and company logos together. They're matched "
+    "automatically by **file name** (e.g. `Mario_Rossi.jpg`, `Enel_logo.png`). "
+    "Anything that doesn't match gets an initials circle you can swap in PowerPoint."
 )
 
 pool_uploads = st.file_uploader(
-    "Fotos + logos (PNG, JPG)", type=["png", "jpg", "jpeg"],
+    "Photos + logos (PNG, JPG)", type=["png", "jpg", "jpeg"],
     accept_multiple_files=True, key="ts_pool",
 )
 pool: dict[str, bytes] = {}
 if pool_uploads:
     for f in pool_uploads:
         pool[f.name] = f.getvalue()
-    st.caption(f"{len(pool)} archivo(s) cargados.")
+    st.caption(f"{len(pool)} file(s) loaded.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5 · OPTIONS (sensible defaults — usually leave as-is)
 # ══════════════════════════════════════════════════════════════════════════════
-with st.expander("⚙️ Opciones (los valores por defecto suelen valer)", expanded=False):
+with st.expander("⚙️ Options (the defaults usually work)", expanded=False):
     if is_event:
-        opt_cover = st.checkbox("Slide de portada (Bienvenida + muro de logos)", value=True,
+        opt_cover = st.checkbox("Cover slide (Welcome + sponsor logo wall)", value=True,
                                 key="ts_cover")
-        opt_breaks = st.checkbox("Slides de transición (café, comida, cóctel…)", value=True,
+        opt_breaks = st.checkbox("Transition slides (coffee, lunch, cocktail…)", value=True,
                                  key="ts_breaks")
         util_pick = st.multiselect(
-            "Slides de utilidad",
+            "Utility slides",
             options=["mute", "wifi", "qr"],
             default=["mute", "qr"],
-            format_func={"mute": "📵 Silenciar móvil", "wifi": "📶 WiFi",
-                         "qr": "📱 QR registro"}.get,
+            format_func={"mute": "📵 Mute your phone", "wifi": "📶 WiFi",
+                         "qr": "📱 Scan to register"}.get,
             key="ts_utils",
         )
     else:
         opt_cover = False
         opt_breaks = False
         util_pick = []
-        st.caption("Marketing = solo las slides de ponentes (sin portada, transiciones ni utilidades).")
+        st.caption("Marketing = speaker slides only (no cover, transitions or utility slides).")
     opt_cards = st.checkbox(
-        "Incluir tarjeta individual por ponente en los paneles", value=True, key="ts_cards",
-        help="Además del panel combinado, una tarjeta por panelista (revelado progresivo en LinkedIn).",
+        "Include an individual card per speaker in panels", value=True, key="ts_cards",
+        help="As well as the combined panel slide, one card per panellist "
+             "(the progressive-reveal LinkedIn assets).",
     )
     title_fit = st.radio(
-        "Tamaño del título", ["flexible", "uniform"], horizontal=True, key="ts_fit",
-        format_func={"flexible": "Flexible (título grande, banda se adapta)",
-                     "uniform": "Uniforme (banda fija, título se ajusta)"}.get,
+        "Title size", ["flexible", "uniform"], horizontal=True, key="ts_fit",
+        format_func={"flexible": "Flexible (big title, band adapts)",
+                     "uniform": "Uniform (fixed band, title adapts)"}.get,
     )
 
 
@@ -249,13 +258,13 @@ with st.expander("⚙️ Opciones (los valores por defecto suelen valer)", expan
 # 6 · GENERATE
 # ══════════════════════════════════════════════════════════════════════════════
 st.divider()
-st.header("6 · Generar")
+st.header("6 · Generate")
 
 ready = agenda1 is not None
-gen_btn = st.button("🎬 Generar slides de título", type="primary",
+gen_btn = st.button("🎬 Generate title slides", type="primary",
                     use_container_width=True, disabled=not ready)
 if not ready:
-    st.info("Sube al menos la agenda del idioma principal para empezar.")
+    st.info("Upload at least the primary-language agenda to start.")
 
 
 def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
@@ -268,7 +277,7 @@ def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
         lang_strings=LANGUAGE_STRINGS.get(lang, LANGUAGE_STRINGS["en"]),
         include_cards=opt_cards, layout=layout, title_fit=title_fit,
         include_breaks=opt_breaks, cover=opt_cover, lang=lang,
-        utility_kinds=util_pick or None,
+        utility_kinds=util_pick or None, event_band=event_band,
     )
     with open(out_path, "rb") as f:
         data = f.read()
@@ -278,13 +287,10 @@ def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
 if gen_btn and ready:
     decks: list[tuple[str, dict]] = []   # (filename, {bytes, report})
     try:
-        with st.spinner("Generando…"):
+        with st.spinner("Generating…"):
             if is_event:
-                # ONE bilingual deck (primary on top, secondary below)
-                if agenda2:
-                    deck_agenda = _merge_bilingual(agenda1, agenda2)
-                else:
-                    deck_agenda = agenda1
+                # ONE bilingual deck (primary title bigger, secondary below)
+                deck_agenda = _merge_bilingual(agenda1, agenda2) if agenda2 else agenda1
                 res = _build_one(deck_agenda, lang1, "event", "event_title_slides")
                 decks.append(("event_title_slides.pptx", res))
             else:
@@ -295,10 +301,10 @@ if gen_btn and ready:
                     res2 = _build_one(agenda2, lang2, "marketing", f"marketing_{lang2}")
                     decks.append((f"marketing_title_slides_{lang2}.pptx", res2))
         st.session_state["_ts_decks"] = decks
-        st.success(f"✅ Generado: {len(decks)} deck(s).")
+        st.success(f"✅ Generated {len(decks)} deck(s).")
     except Exception as e:
         import traceback
-        st.error(f"Error generando: {e}")
+        st.error(f"Generation failed: {e}")
         st.code(traceback.format_exc())
 
 
@@ -309,7 +315,7 @@ if decks:
     for fname, res in decks:
         st.subheader(f"📊 {fname}")
         st.download_button(
-            f"⬇️ Descargar {fname}",
+            f"⬇️ Download {fname}",
             data=res["bytes"], file_name=fname,
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             use_container_width=True, key=f"dl_{fname}",
@@ -319,12 +325,12 @@ if decks:
         miss_l = rep.get("logo_missing") or []
         n_p = len(rep.get("photo_matched") or []) + len(rep.get("photo_fuzzy") or [])
         n_l = len(rep.get("logo_matched") or [])
-        st.caption(f"Fotos emparejadas: {n_p} · Logos emparejados: {n_l}")
+        st.caption(f"Photos matched: {n_p} · Logos matched: {n_l}")
         if miss_p or miss_l:
-            with st.expander("⚠️ Sin emparejar (saldrán con marcador editable)", expanded=False):
+            with st.expander("⚠️ Not matched (will use an editable placeholder)", expanded=False):
                 if miss_p:
-                    st.markdown("**Fotos faltantes:** " + ", ".join(miss_p))
+                    st.markdown("**Missing photos:** " + ", ".join(miss_p))
                 if miss_l:
-                    st.markdown("**Logos faltantes:** " + ", ".join(miss_l))
-                st.caption("Renombra el archivo al nombre del ponente / empresa y vuelve a subir, "
-                           "o cámbialo directamente en PowerPoint (las slides son editables).")
+                    st.markdown("**Missing logos:** " + ", ".join(miss_l))
+                st.caption("Rename the file to the speaker / company name and re-upload, "
+                           "or just swap it in PowerPoint (the slides are editable).")

@@ -31,7 +31,7 @@ try:
 except Exception as e:
     _CORE_OK, _CORE_ERR = False, str(e)
 
-LANGS = {"English": "en", "Español": "es", "Italiano": "it", "Polski": "pl"}
+LANGS = {"English": "en", "Spanish": "es", "Italian": "it", "Polish": "pl"}
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 st.title("📊 Webinar Reports")

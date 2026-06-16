@@ -428,22 +428,31 @@ def _fit_size(text, font_name, max_w_in, max_h_in, hi, lo, max_lines=3):
     return lo, lines
 
 
+def _band_pos(layout, band_pos):
+    """Resolve where the title band sits. Marketing is always top; event defaults
+    to bottom but the builder can choose. `band_pos` ('top'/'bottom') wins."""
+    if band_pos in ("top", "bottom"):
+        return band_pos
+    return "top" if layout == "marketing" else "bottom"
+
+
 def _add_title_band(slide, theme_key, session, layout="marketing",
-                    title_fit="uniform"):
+                    title_fit="uniform", band_pos=None):
     """
     Coloured title band with the bilingual session title.
-      layout    'marketing' → band TOP   | 'event' → band BOTTOM
+      band_pos  'top' | 'bottom' (defaults from layout: marketing→top, event→bottom)
       title_fit 'uniform'   → fixed band height, title auto-shrinks to fit
                 'flexible'  → title kept large, band grows/shrinks to fit it
     Returns (content_top_emu, content_bottom_emu) — the free area for speakers.
     """
+    bp = _band_pos(layout, band_pos)
     title1 = (session.get("title") or "").strip()
     title2 = (session.get("title_2") or "").strip()
     max_w_in = _BAND_MEASURE_W
     pad_in = 0.24
 
     if title_fit == "uniform":
-        band_h_in = 1.95 if layout == "marketing" else 1.6
+        band_h_in = 1.95 if bp == "top" else 1.6
         avail = (band_h_in - 2 * pad_in)
         if title2:
             en_pt, en_lines = _fit_size(title1, F_BLACK, max_w_in, avail * 0.56,
@@ -457,7 +466,7 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
     else:  # flexible — keep the title big, grow the band to fit it (shrinking the
            # font only if it would otherwise overflow the band's max height)
         BAND_MAX = 3.0
-        en_pt = 30 if layout == "marketing" else 28
+        en_pt = 30 if bp == "top" else 28
         while True:
             en_lines = _measure(title1, F_BLACK, en_pt, max_w_in * _PX_PER_IN)[0]
             it_pt = max(15, int(en_pt * 0.72)) if title2 else None
@@ -473,7 +482,7 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
         band_h_in = max(1.2, min(BAND_MAX, band_h_in))
 
     band_h = Inches(band_h_in)
-    if layout == "event":
+    if bp == "bottom":
         band_top = SLIDE_H - band_h
         content_top, content_bottom = Emu(0), band_top
     else:
@@ -564,9 +573,10 @@ def _white_bg(slide):
     bg.fill.solid(); bg.fill.fore_color.rgb = WHITE; _no_line(bg); bg.shadow.inherit = False
 
 
-def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6):
-    """Small theme logo in a corner that neither the title band nor the speaker
-    photos occupy (top-right for 'event', bottom-right for 'marketing')."""
+def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6, band_pos=None):
+    """Small theme logo in the corner OPPOSITE the title band, so neither the band
+    nor the speaker photos collide with it (band bottom → logo top-right; band
+    top → logo bottom-right)."""
     logo_fn = _theme(theme_key).get("logo_filename")
     if not logo_fn:
         return
@@ -578,7 +588,8 @@ def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6):
     tw = Inches(w_in)
     th = int(tw * h0 / w0)
     x = SLIDE_W - tw - Inches(0.3)
-    y = Inches(0.3) if layout == "event" else SLIDE_H - Emu(th) - Inches(0.25)
+    y = Inches(0.3) if _band_pos(layout, band_pos) == "bottom" \
+        else SLIDE_H - Emu(th) - Inches(0.25)
     slide.shapes.add_picture(lp, x, y, width=tw, height=Emu(th))
 
 
@@ -588,18 +599,20 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
                              speaker: dict, photo: Image.Image | None = None,
                              logo: Image.Image | None = None,
                              lang_strings: dict | None = None,
-                             layout: str = "marketing", title_fit: str = "flexible"):
+                             layout: str = "marketing", title_fit: str = "flexible",
+                             band_pos: str | None = None):
     """
     One title card for an individual speaker: circular photo, company logo,
     name (bold) + role, optional Moderator label, plus the bilingual session
-    title in a coloured band (top for 'marketing', bottom for 'event').
+    title in a coloured band (top or bottom — see `band_pos`).
     """
+    bp = _band_pos(layout, band_pos)
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     _white_bg(slide)
 
     content_top, content_bottom = _add_title_band(
-        slide, theme_key, session, layout=layout, title_fit=title_fit)
+        slide, theme_key, session, title_fit=title_fit, band_pos=bp)
 
     cx = SLIDE_W // 2
     ls = lang_strings or {}
@@ -644,7 +657,7 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
                             _theme_rgb(theme_key), True)])
     _add_text(slide, Inches(1.0), y, Inches(11.333), Inches(1.0), name_paras)
 
-    _theme_logo_corner(slide, theme_key, layout=layout)
+    _theme_logo_corner(slide, theme_key, band_pos=bp)
     return slide
 
 
@@ -653,13 +666,14 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
 def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
                     photos: dict | None = None, logos: dict | None = None,
                     lang_strings: dict | None = None, layout: str = "marketing",
-                    title_fit: str = "flexible"):
+                    title_fit: str = "flexible", band_pos: str | None = None):
     """One slide for a whole panel: bilingual title band + a row of speakers
-    (photo / company logo / name / role / Moderator chip).
-    layout 'event' → title band bottom, photos high; 'marketing' → band top."""
+    (photo / company logo / name / role / Moderator chip). `band_pos` puts the
+    title band 'top' or 'bottom'."""
     photos = photos or {}
     logos = logos or {}
     ls = lang_strings or {}
+    bp = _band_pos(layout, band_pos)
     speakers = [s for s in session.get("speakers", []) if (s.get("name") or "").strip()]
     if not speakers:
         return None
@@ -669,7 +683,7 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     _white_bg(slide)
 
     content_top, content_bottom = _add_title_band(
-        slide, theme_key, session, layout=layout, title_fit=title_fit)
+        slide, theme_key, session, title_fit=title_fit, band_pos=bp)
 
     n = len(speakers)
     # circle diameter shrinks as the panel grows (bumped up — "bigger where possible")
@@ -683,21 +697,22 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     col_w = usable / n
     below_in = 0.14 + 0.82 + 1.4             # logo zone + name block under each circle
     logo_zone_in = 0.82
-    content_h = content_bottom - content_top
+
+    # Inset the photo block away from the corner logo (which sits opposite the
+    # band) so a circle never overlaps it: band bottom → logo top, clear the top;
+    # band top → logo bottom, clear the bottom.
+    clear = Inches(1.1)
+    ct = content_top + (clear if bp == "bottom" else Emu(0))
+    cb = content_bottom - (clear if bp == "top" else Emu(0))
+    ch = cb - ct
     block_h = Inches(dia_in + below_in)
-    photo_top = content_top + max(Inches(0.3), Emu(int((content_h - block_h) / 2)))
+    photo_top = ct + max(Inches(0.2), Emu(int((ch - block_h) / 2)))
 
-    # Event layout pushes photos high → keep them clear of the top-right corner
-    # logo so it never sits on top of a circle. (Single speakers are centred and
-    # don't need this; panels can have a circle right under the logo.)
-    if layout == "event":
-        photo_top = max(photo_top, content_top + Inches(1.1))
-
-    # Cap the circle so circle + text still fit above the bottom band / content end.
-    avail_below_in = (content_bottom - photo_top) / EMU_PER_IN - below_in - 0.1
+    # Cap the circle so circle + text still fit within the usable region.
+    avail_below_in = (cb - photo_top) / EMU_PER_IN - below_in - 0.1
     if dia_in > avail_below_in:
         dia_in = max(1.4, avail_below_in)
-    max_logo_w    = min(col_w / EMU_PER_IN - 0.25, 1.8)
+    max_logo_w = min(col_w / EMU_PER_IN - 0.25, 1.8)
 
     # ── fixed vertical zones so every column's logo / name / role line up ─────
     photo_bottom  = photo_top + Inches(dia_in)
@@ -739,7 +754,7 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
         _add_text(slide, col_left, name_y, col_w, Inches(1.5), paras,
                   anchor=MSO_ANCHOR.TOP)
 
-    _theme_logo_corner(slide, theme_key, layout=layout)
+    _theme_logo_corner(slide, theme_key, band_pos=bp)
     return slide
 
 
@@ -983,16 +998,19 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
                      include_cards: bool = True, layout: str = "marketing",
                      title_fit: str = "flexible", include_breaks: bool = True,
                      cover: bool = True, lang: str = "en",
-                     utility_kinds: "list | None" = None) -> str:
+                     utility_kinds: "list | None" = None,
+                     event_band: str = "bottom") -> str:
     """
     Optional cover slide, then for each session in agenda order:
       • break  → full-bleed section/break divider (coffee, lunch, cocktail…)
       • panel  → combined panel slide, then (optional) one card per panelist
       • presentation/speaker → one speaker card
-    layout: 'event' (title bottom, photos high) or 'marketing' (title top band).
+    layout: 'event' or 'marketing'. For event decks the title band position is
+    `event_band` ('top' or 'bottom'); marketing is always top.
     """
     photos = photos or {}
     logos = logos or {}
+    band_pos = "top" if layout == "marketing" else event_band
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
@@ -1018,21 +1036,23 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
             continue
         if stype == "panel":
             add_panel_slide(prs, theme_key, sess, photos, logos, lang_strings,
-                            layout=layout, title_fit=title_fit)
+                            layout=layout, title_fit=title_fit, band_pos=band_pos)
             if include_cards:
                 for sp in named:
                     add_single_speaker_slide(
                         prs, theme_key, sess, sp,
                         photo=photos.get(sp.get("name", "")),
                         logo=logos.get((sp.get("company") or "").strip()),
-                        lang_strings=lang_strings, layout=layout, title_fit=title_fit)
+                        lang_strings=lang_strings, layout=layout,
+                        title_fit=title_fit, band_pos=band_pos)
         elif stype in ("presentation", "speaker"):
             for sp in named:
                 add_single_speaker_slide(
                     prs, theme_key, sess, sp,
                     photo=photos.get(sp.get("name", "")),
                     logo=logos.get((sp.get("company") or "").strip()),
-                    lang_strings=lang_strings, layout=layout, title_fit=title_fit)
+                    lang_strings=lang_strings, layout=layout,
+                    title_fit=title_fit, band_pos=band_pos)
 
     prs.save(out_path)
     return out_path

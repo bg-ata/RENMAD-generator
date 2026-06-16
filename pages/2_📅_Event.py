@@ -299,8 +299,8 @@ def _renmad_logo_img() -> Image.Image | None:
 st.set_page_config(page_title="Event Image Generator", page_icon="📅", layout="wide")
 st.title("📅 Event Image Generator")
 st.caption(
-    "Elige el evento (barra lateral), elige **qué imagen quieres crear** "
-    "(Ingo · Marketing partners · Logo wall), rellena los datos y genera."
+    "Pick the event (sidebar), choose **which image you want to make** "
+    "(Ingo · Marketing partners · Logo wall), fill in the details and generate."
 )
 
 
@@ -309,7 +309,7 @@ existing = _events_list()
 
 with st.sidebar:
     st.header("📅 Events")
-    st.caption("Elige el evento en el que trabajas, o crea uno nuevo.")
+    st.caption("Pick the event you're working on, or create a new one.")
     options = ["➕ New event"] + [f"📁 {e.get('name', e['_id'])}" for e in existing]
     pick = st.selectbox("Open or create", options, key="event_pick")
 
@@ -337,7 +337,7 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Couldn't delete: {e}")
     else:
-        st.info("Creando un evento nuevo. Rellena los datos y pulsa **💾 Save event**.")
+        st.info("Creating a new event. Fill in the details and click **💾 Save event**.")
 
 
 # ── Detect event switch and POPULATE session_state directly ─────────────────
@@ -423,11 +423,11 @@ mode = st.radio(
     label_visibility="collapsed",
 )
 st.caption({
-    MODE_INGO:    "📸 **Ingo** — la infografía 1200×630 del evento (Evento · Ponente · Asistente · Sponsor), ES + EN.",
-    MODE_PARTNER: "🎨 **Marketing partners** — 4 banners por sponsor/partner, con el fondo del evento.",
-    MODE_WALL:    "🖼️ **Logo wall** — el muro de logos 1920px, sponsors ordenados por tier, ES + EN.",
+    MODE_INGO:    "📸 **Ingo** — the 1200×630 event infographic (Event · Speaker · Attendee · Sponsor), ES + EN.",
+    MODE_PARTNER: "🎨 **Marketing partners** — 4 banners per sponsor/partner, with the event background.",
+    MODE_WALL:    "🖼️ **Logo wall** — the 1920px logo wall, sponsors ordered by tier, ES + EN.",
 }[mode])
-st.caption("Rellena los datos del evento abajo; luego pulsa **generar** en tu opción al final.")
+st.caption("Fill in the event details below, then click **generate** on your chosen option at the end.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -448,7 +448,7 @@ theme_key = c2.selectbox(
     index=theme_idx, key="ev_theme",
 )
 
-LANGS = {"es": "Español", "en": "English", "it": "Italiano", "pl": "Polski"}
+LANGS = {"es": "Spanish", "en": "English", "it": "Italian", "pl": "Polish"}
 default_lang = (loaded_event or {}).get("language", "es")
 language = c3.selectbox(
     "Event language", options=list(LANGS.keys()),
@@ -584,7 +584,7 @@ with st.expander("🖼️ Background photo (optional — used by Partner-marketi
 st.header("3 · Sponsors & logos")
 
 # ── Logo pool ────────────────────────────────────────────────────────────────
-st.markdown("**Logo pool** — sube todos los logos del evento aquí; luego asignas cada uno a una empresa.")
+st.markdown("**Logo pool** — upload all the event logos here; then assign each one to a company.")
 
 uploads = st.file_uploader(
     "Drop logo files here (PNG, JPG, SVG)",
@@ -628,12 +628,12 @@ if logo_pool:
 # ── Sponsors & partners table ────────────────────────────────────────────────
 st.markdown(
     """
-**Sponsors & partners** — una sola columna para el rol; el sistema deduce el resto:
+**Sponsors & partners** — one column for the role; the system infers the rest:
 
-| Tú escribes | Banner muestra | Logo wall |
+| You type | Banner shows | Logo wall |
 |---|---|---|
-| `Diamond` / `Platinum` / `Global` / `Gold` / `Silver` / `Bronze` | `{TIER} SPONSOR` | Sponsor (por tier) |
-| `Standard` *(o vacío)* | `SPONSOR` | Sponsor tier 7 |
+| `Diamond` / `Platinum` / `Global` / `Gold` / `Silver` / `Bronze` | `{TIER} SPONSOR` | Sponsor (by tier) |
+| `Standard` *(or blank)* | `SPONSOR` | Sponsor tier 7 |
 | `Knowledge Partner` / `Media Partner` / *freeform* | uppercase verbatim | Partner / Other |
 """,
     unsafe_allow_html=False,
@@ -648,7 +648,7 @@ table_init = [{"Company": p.get("Company", ""), "Role": p.get("Role", "")}
               for p in default_partners]
 
 # Bulk paste from Excel — solves Streamlit's multi-column paste issue.
-# Pegas aquí → al pulsar Add se crean filas reales, una por línea.
+# Paste here → clicking Add creates real rows, one per line.
 #
 # NOTE: the paste box key carries a per-event VERSION suffix. To clear the box
 # after a bulk-add we simply bump that version and rerun, so the text_area
@@ -659,15 +659,15 @@ _paste_v_key = f"_paste_v_{active_event_id or 'new'}"
 _paste_v = st.session_state.get(_paste_v_key, 0)
 paste_key = f"bulk_paste_{active_event_id or 'new'}_v{_paste_v}"
 
-with st.expander("📋 Pega la lista de empresas (bulk add)", expanded=True):
+with st.expander("📋 Paste the list of companies (bulk add)", expanded=True):
     st.caption(
-        "Pega una empresa por línea, en **cualquier formato** — sirve copiado de Excel, "
-        "Word, email o Notion. La empresa va primero y el rol después, separados por "
-        "coma, raya, barra, punto y coma, tabulador o paréntesis. Si solo pones la "
-        "empresa, el rol queda vacío."
+        "Paste one company per line, in **any format** — works pasted from Excel, "
+        "Word, email or Notion. Company first, role after, separated by a comma, "
+        "dash, slash, semicolon, tab or parentheses. If you only put the company, "
+        "the role is left blank."
     )
     paste_text = st.text_area(
-        "Pega aquí", height=150, key=paste_key,
+        "Paste here", height=150, key=paste_key,
         placeholder=("HILTI, Diamond\n"
                      "Linklaters - Gold\n"
                      "Acme Media | Media Partner\n"
@@ -675,9 +675,9 @@ with st.expander("📋 Pega la lista de empresas (bulk add)", expanded=True):
                      "Iberdrola"),
     )
     bp1, bp2 = st.columns([1, 3])
-    add_bulk = bp1.button("➕ Añadir a la tabla", use_container_width=True,
+    add_bulk = bp1.button("➕ Add to the table", use_container_width=True,
                           disabled=not paste_text.strip())
-    bp2.caption("Cada línea = una empresa. Luego asignas el logo de cada una abajo.")
+    bp2.caption("Each line = one company. Then assign each one's logo below.")
 
 # data_editor's key MUST be unique per event. Streamlit forbids
 # st.session_state[key] = ... for data_editor, so the only way to "load" data is
@@ -843,8 +843,8 @@ save_btn = sv1.button("💾 Save event", type="primary",
                       use_container_width=True, disabled=not event_name)
 if sv2.button("🔄 Refresh", use_container_width=True):
     st.rerun()
-sv3.caption("Guarda nombre, fechas, sponsors y logos. Las imágenes generadas se "
-            "descargan/guardan en cada sección de abajo.")
+sv3.caption("Saves name, dates, sponsors and logos. Generated images are "
+            "downloaded/saved in each section below.")
 
 if save_btn:
     _eid_s = active_event_id or 'new'
@@ -916,7 +916,7 @@ if mode == MODE_PARTNER:
         disabled=not partners_clean or not event_name,
     )
     if not partners_clean:
-        st.info("Añade al menos un sponsor/partner arriba (paso 2).")
+        st.info("Add at least one sponsor/partner above (step 2).")
 
     if generate_btn:
         all_outputs: dict[str, bytes] = {}
@@ -991,8 +991,8 @@ if mode == MODE_PARTNER:
 elif mode == MODE_INGO:
     st.subheader("📸 Event Ingo — 1 200 × 630 px")
     st.caption(
-        "Infografía del evento con fondo blanco y círculo vacío para la foto del usuario. "
-        "Se generan 8 formatos: 4 ES + 4 EN (Evento · Ponente · Asistente · Sponsor)."
+        "Event infographic on a white background with an empty circle for the user's photo. "
+        "Generates 8 formats: 4 ES + 4 EN (Event · Speaker · Attendee · Sponsor)."
     )
 
     from generators.t_ingo import (generate_all_variants as _gen_all_ingos,
@@ -1067,9 +1067,9 @@ elif mode == MODE_INGO:
         disabled=not event_name,
     )
     ig2.caption(
-        "Genera los 8 formatos a la vez — 4 en español + 4 en inglés "
-        "(Evento · Ponente · Asistente · Sponsor). "
-        "El círculo queda vacío para que cada persona añada su foto."
+        "Generates all 8 formats at once — 4 in Spanish + 4 in English "
+        "(Event · Speaker · Attendee · Sponsor). "
+        "The circle is left empty so each person can add their own photo."
     )
 
     if gen_ingo_btn:
@@ -1159,7 +1159,7 @@ elif mode == MODE_INGO:
             st.success(f"💾 Saved {_saved_count} Ingos to `{_ingo_dir}`")
 
         if _ingos_es:
-            st.markdown("**🇪🇸 Español**")
+            st.markdown("**🇪🇸 Spanish**")
             _es_cols = st.columns(4)
             for _col, _v in zip(_es_cols, _INGO_VARIANTS):
                 if _v not in _ingos_es:
@@ -1228,7 +1228,7 @@ elif mode == MODE_WALL:
         use_container_width=True,
         disabled=not event_name,
     )
-    lw2.caption("Genera el logo wall ES + EN en 1 920 px — sponsors del evento ordenados por tier.")
+    lw2.caption("Generates the logo wall ES + EN at 1,920 px — event sponsors ordered by tier.")
 
     if _gen_lw_btn:
         _lw_tiers, _lw_secondary = _build_ingo_tiers(partners_clean_sorted, logo_pool)
@@ -1260,8 +1260,8 @@ elif mode == MODE_WALL:
     if _lw_result:
         _lw_slug = st.session_state.get("_last_logowall_name", "event")
         st.divider()
-        st.caption("Cada idioma se descarga en **PNG** (imagen), **PDF** (impresión) "
-                   "y **PPTX** (PowerPoint editable — cada logo es una imagen movible).")
+        st.caption("Each language downloads as **PNG** (image), **PDF** (print) "
+                   "and **PPTX** (editable PowerPoint — each logo is a movable image).")
 
         _LW_FMTS = [
             ("png",  "🖼️ PNG",  "image/png"),
@@ -1291,7 +1291,7 @@ elif mode == MODE_WALL:
 
         _lw_col_es, _lw_col_en = st.columns(2)
         with _lw_col_es:
-            _lw_lang_block("es", "🇪🇸 Español")
+            _lw_lang_block("es", "🇪🇸 Spanish")
         with _lw_col_en:
             _lw_lang_block("en", "🇬🇧 English")
 

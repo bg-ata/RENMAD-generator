@@ -215,8 +215,8 @@ st.sidebar.markdown(
 language = st.sidebar.selectbox(
     "Language",
     options=["es", "en", "it", "pl"],
-    format_func=lambda x: {"es": "Español", "en": "English",
-                            "it": "Italiano", "pl": "Polski"}[x],
+    format_func=lambda x: {"es": "Spanish", "en": "English",
+                            "it": "Italian", "pl": "Polish"}[x],
     key="language",
 )
 
@@ -332,25 +332,25 @@ paste_text = st.text_area(
     "session",
     height=230,
     placeholder=(
-        "TÍTULO / TITLE\n"
-        "Escribe aquí el título del webinar / Write the webinar title here\n"
+        "TITLE\n"
+        "Write the webinar title here\n"
         "\n"
-        "FECHA / DATE\n"
-        "Ej: 23 de octubre de 2026\n"
+        "DATE\n"
+        "e.g. 23 October 2026\n"
         "\n"
-        "HORA / TIME\n"
-        "Ej: 11:00h CEST\n"
+        "TIME\n"
+        "e.g. 11:00h CEST\n"
         "\n"
-        "LUGAR / LOCATION\n"
-        "Ej: Madrid / Online\n"
+        "LOCATION\n"
+        "e.g. Madrid / Online\n"
         "\n"
-        "URL DE REGISTRO / REGISTRATION URL\n"
-        "Ej: www.renmad.com/registro\n"
+        "REGISTRATION URL\n"
+        "e.g. www.renmad.com/register\n"
         "\n"
-        "PONENTES / SPEAKERS  (Nombre, Cargo, Empresa)\n"
-        "Nombre Apellido, Cargo, Empresa\n"
-        "Nombre Apellido, Cargo, Empresa\n"
-        "Moderador/a: Nombre Apellido, Cargo, Empresa"
+        "SPEAKERS  (Name, Role, Company)\n"
+        "First Last, Role, Company\n"
+        "First Last, Role, Company\n"
+        "Moderator: First Last, Role, Company"
     ),
     key="paste",
     label_visibility="collapsed",
