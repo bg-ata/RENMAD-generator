@@ -901,7 +901,8 @@ def add_break_slide(prs: Presentation, theme_key: str, session: dict,
     welcome…): charcoal icon panel + the (bilingual) label. No time shown —
     events run late and there's rarely a chance to correct it. All native."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    x0 = _section_base(slide, theme_key, _BREAK_ICON_NAME.get(session.get("break_kind")))
+    x0 = _section_base(slide, theme_key,
+                       _BREAK_ICON_NAME.get(session.get("break_kind"), "clock"))
     title = _strip_emoji(session.get("title", "")).upper()
     title2 = _strip_emoji(session.get("title_2", "")).upper()
     _section_text(slide, x0, title, title2=title2)
