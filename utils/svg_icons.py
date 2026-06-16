@@ -21,11 +21,25 @@ _ICONS = {
         '<circle cx="12" cy="18.4" r="0.9" fill="{c}" stroke="none"/>'
         '<line x1="4.2" y1="3.4" x2="19.8" y2="20.6"/>'
     ),
-    # coffee cup + steam (Lucide coffee)
+    # mug with a cookie resting on top (coffee break)
     "coffee": (
-        '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/>'
-        '<path d="M4 8h13a4 4 0 0 1 0 8h-1"/>'
-        '<path d="M4 8v9a4 4 0 0 0 4 4h5a4 4 0 0 0 4-4V8z"/>'
+        '<path d="M5 11h8v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"/>'
+        '<path d="M13 12.5h2.2a2.2 2.2 0 0 1 0 4.4H13"/>'
+        '<circle cx="9" cy="8.2" r="3.4"/>'
+        '<circle cx="7.9" cy="7.4" r="0.45" fill="{c}" stroke="none"/>'
+        '<circle cx="10.1" cy="7.9" r="0.45" fill="{c}" stroke="none"/>'
+        '<circle cx="9" cy="9.5" r="0.45" fill="{c}" stroke="none"/>'
+    ),
+    # person with a tick (registration / check-in)
+    "checkin": (
+        '<circle cx="9" cy="8" r="3.3"/>'
+        '<path d="M3.5 20a5.6 5.6 0 0 1 11 0"/>'
+        '<path d="M15.5 13.8l1.8 1.8 3.4-3.6"/>'
+    ),
+    # muted speaker (mute your phone)
+    "volume_off": (
+        '<path d="M11 4.5 6 9H2v6h4l5 4.5z" fill="{c}" stroke="none"/>'
+        '<line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/>'
     ),
     # fork + knife
     "meal": (

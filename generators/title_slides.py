@@ -821,53 +821,90 @@ def _strip_emoji(s: str) -> str:
     return _EMOJI_RE.sub("", s or "").strip()
 
 
-def _break_icon(kind: str):
-    name = {
-        "registration": "badge", "break": "coffee", "lunch": "meal",
-        "cocktail": "cocktail", "networking": "people",
-        "welcome": "clock", "closing": "clock",
-    }.get(kind)
-    return svg_icons.render(name, 600, (255, 255, 255)) if name else None
+_BREAK_ICON_NAME = {
+    "registration": "checkin", "break": "coffee", "lunch": "meal",
+    "cocktail": "cocktail", "networking": "people",
+    "welcome": "clock", "closing": "clock",
+}
+
+# Split-panel section/utility layout (chosen by Belén 2026-06-16):
+#   left charcoal panel with a white icon · right theme-colour area with a
+#   left-aligned title, a cream divider rule, and an optional detail line.
+_PANEL_RGB = RGBColor(0x1C, 0x25, 0x29)
+_CREAM = RGBColor(0xFF, 0xE2, 0xD4)
+_PANEL_W = Inches(4.55)
 
 
-def add_break_slide(prs: Presentation, theme_key: str, session: dict,
-                    lang_strings: dict | None = None, layout: str = "marketing"):
-    """A full-bleed theme-colour divider for breaks/sections (coffee, lunch,
-    cocktail, registration, welcome…): a white icon inside a thin ring, the
-    (bilingual) label and the time. All text is native/editable."""
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
+def _section_base(slide, theme_key, icon_name, icon_in=2.5):
+    """Theme-colour background + left charcoal panel with a centred white icon.
+    Returns the x where the right-hand content column should start (EMU)."""
     bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SLIDE_W, SLIDE_H)
     bg.fill.solid(); bg.fill.fore_color.rgb = _theme_rgb(theme_key)
     _no_line(bg); bg.shadow.inherit = False
 
-    cx = SLIDE_W // 2
-    icon = _break_icon(session.get("break_kind"))
-    if icon is not None:
-        # big icon inside a thin white ring — fills the upper half of the slide
-        ring_d = Inches(3.1)
-        ring_top = Inches(0.95)
-        ring = slide.shapes.add_shape(MSO_SHAPE.OVAL,
-                                      int(cx - ring_d / 2), ring_top, ring_d, ring_d)
-        ring.fill.background()
-        ring.line.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        ring.line.width = Pt(2.25)
-        ring.shadow.inherit = False
-        icon_in = 1.65
-        icon_top = ring_top + Emu(int((ring_d - Inches(icon_in)) / 2))
-        _add_picture_fit(slide, icon, cx, icon_top, icon_in, icon_in)
+    panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, _PANEL_W, SLIDE_H)
+    panel.fill.solid(); panel.fill.fore_color.rgb = _PANEL_RGB
+    _no_line(panel); panel.shadow.inherit = False
 
+    icon = svg_icons.render(icon_name, 600, (255, 255, 255)) if icon_name else None
+    if icon is not None:
+        top = (SLIDE_H - Inches(icon_in)) // 2
+        _add_picture_fit(slide, icon, _PANEL_W // 2, top, icon_in, icon_in)
+    return _PANEL_W + Inches(0.7)
+
+
+def _section_text(slide, x0, title, title2=None, detail_runs=None):
+    """Vertically-centred, left-aligned title (+ optional 2nd language) with a
+    cream divider rule, and optional detail line(s) under it."""
+    content_w_in = (SLIDE_W - x0) / EMU_PER_IN - 0.55
+    en_pt, en_lines = _fit_size(title, F_BLACK, content_w_in, 3.4,
+                                hi=52, lo=24, max_lines=3)
+    en_h = len(en_lines) * (en_pt * 2 * _LINE_FACTOR) / _PX_PER_IN
+    it_h = it_pt = 0
+    it_lines = []
+    has2 = bool(title2 and title2 != title)
+    if has2:
+        it_pt = max(20, int(en_pt * 0.52))
+        it_lines, it_h, _ = _measure(title2, F_BOLD, it_pt, content_w_in * _PX_PER_IN)
+    det_h = (len(detail_runs) * 0.42) if detail_runs else 0
+    total = en_h + (0.10 + it_h if has2 else 0) + 0.26 + (0.30 + det_h if detail_runs else 0)
+    y_in = max(0.7, (SLIDE_H / EMU_PER_IN - total) / 2)
+    cw = SLIDE_W - x0 - Inches(0.55)
+
+    en_runs = [[(l, F_BLACK, en_pt, WHITE, True)] for l in en_lines]
+    _add_text(slide, x0, Inches(y_in), cw, Inches(en_h + 0.1), en_runs,
+              align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
+    y_in += en_h
+    if has2:
+        y_in += 0.10
+        it_runs = [[(l, F_BOLD, it_pt, _CREAM, False)] for l in it_lines]
+        _add_text(slide, x0, Inches(y_in), cw, Inches(it_h + 0.1), it_runs,
+                  align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
+        y_in += it_h
+    y_in += 0.16
+    rule = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x0, Inches(y_in),
+                                  Inches(min(2.8, content_w_in * 0.55)),
+                                  Emu(int(0.05 * EMU_PER_IN)))
+    rule.fill.solid(); rule.fill.fore_color.rgb = _CREAM
+    _no_line(rule); rule.shadow.inherit = False
+    y_in += 0.10
+    if detail_runs:
+        y_in += 0.30
+        _add_text(slide, x0, Inches(y_in), cw, Inches(det_h + 0.2), detail_runs,
+                  align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
+    return Inches(y_in)
+
+
+def add_break_slide(prs: Presentation, theme_key: str, session: dict,
+                    lang_strings: dict | None = None, layout: str = "marketing"):
+    """Split-panel section/break divider (coffee, lunch, cocktail, registration,
+    welcome…): charcoal icon panel + the (bilingual) label. No time shown —
+    events run late and there's rarely a chance to correct it. All native."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    x0 = _section_base(slide, theme_key, _BREAK_ICON_NAME.get(session.get("break_kind")))
     title = _strip_emoji(session.get("title", "")).upper()
     title2 = _strip_emoji(session.get("title_2", "")).upper()
-    paras = [[(title, F_BLACK, 52, WHITE, True)]]
-    if title2 and title2 != title:
-        paras.append([(title2, F_BOLD, 31, RGBColor(0xFF, 0xE8, 0xDC), False)])
-    _add_text(slide, Inches(1.0), Inches(4.35), Inches(11.33), Inches(1.6), paras)
-
-    t = (session.get("time") or "").strip()
-    if t:
-        t = re.sub(r"\s*[|\n]\s*", " – ", t).strip()
-        _add_text(slide, Inches(1.0), Inches(6.15), Inches(11.33), Inches(0.7),
-                  [[(t, F_BOLD, 26, RGBColor(0xFF, 0xE8, 0xDC), True)]])
+    _section_text(slide, x0, title, title2=title2)
     return slide
 
 
@@ -879,60 +916,50 @@ _NETWORK_LABEL = {"en": "Network", "es": "Red", "it": "Rete", "pl": "Sieć"}
 _PASSWORD_LABEL = {"en": "Password", "es": "Contraseña", "it": "Password", "pl": "Hasło"}
 
 
+_MUTE_SUB = {
+    "en": "Please silence your devices during the sessions.",
+    "es": "Silencia tus dispositivos durante las sesiones.",
+    "it": "Silenzia i tuoi dispositivi durante le sessioni.",
+    "pl": "Prosimy o wyciszenie urządzeń podczas sesji.",
+}
+
+
 def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
                       lang_strings: dict | None = None, data: dict | None = None,
                       lang: str = "en"):
-    """A housekeeping slide (kind = 'mute' | 'wifi' | 'qr'). Full theme-colour
-    background, white icon + big editable text. Everything is native so a
-    colleague can edit the wording / WiFi / link or delete the slide entirely."""
+    """A housekeeping slide (kind = 'mute' | 'wifi' | 'qr') in the same split-panel
+    style as the breaks: charcoal icon panel + left-aligned title/detail. All
+    native so a colleague can edit the wording / WiFi / link or delete it."""
     ls = lang_strings or {}
     data = data or {}
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SLIDE_W, SLIDE_H)
-    bg.fill.solid(); bg.fill.fore_color.rgb = _theme_rgb(theme_key)
-    _no_line(bg); bg.shadow.inherit = False
-    cx = SLIDE_W // 2
-
-    icon = svg_icons.render({"mute": "phone"}.get(kind, kind), 600, (255, 255, 255))
-    if icon is not None:
-        ring_d = Inches(2.3)
-        ring_top = Inches(0.65)
-        ring = slide.shapes.add_shape(MSO_SHAPE.OVAL,
-                                      int(cx - ring_d / 2), ring_top, ring_d, ring_d)
-        ring.fill.background()
-        ring.line.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        ring.line.width = Pt(2.25)
-        ring.shadow.inherit = False
-        icon_in = 1.25
-        icon_top = ring_top + Emu(int((ring_d - Inches(icon_in)) / 2))
-        _add_picture_fit(slide, icon, cx, icon_top, icon_in, icon_in)
+    icon_name = {"mute": "volume_off", "wifi": "wifi", "qr": "qr"}.get(kind, kind)
+    x0 = _section_base(slide, theme_key, icon_name)
+    cw = SLIDE_W - x0 - Inches(0.55)
 
     if kind == "mute":
-        label = ls.get("mute_phone", "Mute your phone").upper()
-        _add_text(slide, Inches(1.0), Inches(3.3), Inches(11.33), Inches(1.6),
-                  [[(label, F_BLACK, 52, WHITE, True)]])
+        title = ls.get("mute_phone", "Mute your phone").upper()
+        sub = _MUTE_SUB.get(lang, _MUTE_SUB["en"])
+        _section_text(slide, x0, title,
+                      detail_runs=[[(sub, F_BOLD, 22, _CREAM, False)]])
 
     elif kind == "wifi":
-        _add_text(slide, Inches(1.0), Inches(3.1), Inches(11.33), Inches(0.9),
-                  [[("WIFI", F_BLACK, 46, WHITE, True)]])
         net = (data.get("network") or "____________").strip()
         pwd = (data.get("password") or "____________").strip()
         nlab = _NETWORK_LABEL.get(lang, "Network").upper()
         plab = _PASSWORD_LABEL.get(lang, "Password").upper()
-        _add_text(slide, Inches(1.0), Inches(4.4), Inches(11.33), Inches(1.4),
-                  [[(f"{nlab}:  ", F_REG, 26, RGBColor(0xFF, 0xE8, 0xDC), False),
-                    (net, F_BOLD, 26, WHITE, True)],
-                   [(f"{plab}:  ", F_REG, 26, RGBColor(0xFF, 0xE8, 0xDC), False),
-                    (pwd, F_BOLD, 26, WHITE, True)]])
+        _section_text(slide, x0, "WIFI", detail_runs=[
+            [(f"{nlab}   ", F_REG, 24, _CREAM, False), (net, F_BOLD, 24, WHITE, True)],
+            [(f"{plab}   ", F_REG, 24, _CREAM, False), (pwd, F_BOLD, 24, WHITE, True)]])
 
     elif kind == "qr":
-        label = _SCAN_LABEL.get(lang, "Scan to register").upper()
-        _add_text(slide, Inches(1.0), Inches(3.05), Inches(11.33), Inches(1.0),
-                  [[(label, F_BLACK, 46, WHITE, True)]])
-        # editable placeholder square for a QR (paste a real QR over it later)
-        box = Inches(2.2)
+        title = _SCAN_LABEL.get(lang, "Scan to register").upper()
+        _add_text(slide, x0, Inches(1.35), cw, Inches(1.7),
+                  [[(title, F_BLACK, 40, WHITE, True)]],
+                  align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
+        box = Inches(2.3)
         ph = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
-                                    int(cx - box / 2), Inches(4.15), box, box)
+                                    int(x0), Inches(3.45), box, box)
         ph.fill.solid(); ph.fill.fore_color.rgb = WHITE
         ph.line.color.rgb = WHITE; ph.shadow.inherit = False
         ph.text_frame.text = "QR"
@@ -941,8 +968,9 @@ def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
         _r.font.color.rgb = _theme_rgb(theme_key)
         url = (data.get("url") or "").strip()
         if url:
-            _add_text(slide, Inches(1.0), Inches(6.6), Inches(11.33), Inches(0.6),
-                      [[(url, F_BOLD, 20, WHITE, True)]])
+            _add_text(slide, x0, Inches(6.0), cw, Inches(0.7),
+                      [[(url, F_BOLD, 20, _CREAM, True)]],
+                      align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
     return slide
 
 
