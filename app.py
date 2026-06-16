@@ -26,6 +26,25 @@ st.title("🎨 RENMAD Content Generator")
 st.markdown("On-brand marketing images for RENMAD webinars and events. Pick a tool:")
 st.write("")
 
+# Equal-height cards with the button pinned to the bottom, so the four tiles
+# line up regardless of how much copy each one has.
+st.markdown(
+    """
+    <style>
+    div[data-testid="stHorizontalBlock"] { align-items: stretch; }
+    div[data-testid="stVerticalBlockBorderWrapper"] { height: 100%; }
+    div[data-testid="stVerticalBlockBorderWrapper"] > div { height: 100%; }
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {
+        height: 100%; display: flex; flex-direction: column;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
+        margin-top: auto;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 col_a, col_b, col_c, col_d = st.columns(4, gap="large")
 
 with col_a:
@@ -62,12 +81,10 @@ with col_c:
         st.markdown(
             """
 ### 🎬 Title slides
-From an **event agenda** — pick one:
+Session **title slides** from an agenda (editable PPTX).
 
-- 📣 **Marketing** — title top, no transitions (2 decks)
-- 🎤 **Event** — title bottom, with transitions (1 bilingual)
-
-Fully editable PPTX.
+- 📣 **Marketing** — title top, 2 decks
+- 🎤 **Event** — title bottom + transitions
 """
         )
         if st.button("Open Title slides →", type="primary", use_container_width=True, key="goto_titleslides"):
