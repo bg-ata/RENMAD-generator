@@ -359,48 +359,111 @@ def _extract_logo_wall(path: str):
     return best
 
 
-_HEADER_TIME_WORDS = {"time", "hora", "ora", "godzina", "horario", "orario", "tempo"}
-_HEADER_PROG_WORDS = ("programme", "program", "agenda", "session", "sessions",
-                      "programa", "programma", "topic", "content")
+# Exact column-header labels emitted by the RENMAD Timed Agenda generator across
+# its languages (en/es/it/pl/fr/de). Matched EXACTLY (not startswith) so a real
+# session titled "Session 1 …" is never mistaken for a header row.
+_HEADER_TIME_WORDS = {"time", "hora", "ora", "godzina", "heure", "zeit",
+                      "horario", "orario", "tempo"}
+_HEADER_PROG_WORDS = {"programme", "program", "programa", "programma", "programm"}
+_HEADER_SPK_WORDS = {"speakers", "speaker", "relatori", "relatore", "ponentes",
+                     "ponente", "prelegenci", "intervenants", "referenten",
+                     "oradores", "relatori/trici"}
+
+_TIME_CELL_RE = re.compile(r"\d{1,2}[:.h]\d{2}")
 
 
 def _is_header_row(time: str, block: str) -> bool:
     """True for a table's column-header row (Time | Programme | Speakers)."""
     t = (time or "").strip().lower()
     b = (block or "").strip().lower().split("\n")[0].strip()
-    return t in _HEADER_TIME_WORDS or any(b == w or b.startswith(w) for w in _HEADER_PROG_WORDS)
+    return t in _HEADER_TIME_WORDS or b in _HEADER_PROG_WORDS
+
+
+def _is_agenda_table(tbl) -> bool:
+    """Identify THE agenda table(s) among all tables in the doc. A doc may also
+    contain a logo+title header table and a footer/contact band table; with a
+    header logo the agenda is no longer tables[0]. Multi-day / parallel-track
+    agendas emit one agenda table per day per track. Detect by the column-header
+    row, or (fallback) by most first-column cells looking like a time."""
+    if not tbl.rows:
+        return False
+    c0 = tbl.rows[0].cells
+    if len(c0) >= 2 and _is_header_row(_strip(c0[0].text), c0[1].text):
+        return True
+    timed = total = 0
+    for row in tbl.rows:
+        cells = row.cells
+        if len(cells) < 2:
+            continue
+        total += 1
+        if _TIME_CELL_RE.search(cells[0].text or ""):
+            timed += 1
+    return total >= 2 and timed >= max(2, total // 2)
+
+
+def _first_title_text(doc, agenda_tables) -> str:
+    """First substantial, non-label text in document order, stopping when the
+    agenda table is reached. Handles both the header-logo (title in a table) and
+    no-logo (title in the first paragraph) exports."""
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    def _ok(t: str) -> bool:
+        t = (t or "").strip()
+        low = t.lower()
+        return bool(t) and len(t) > 3 and "@" not in t \
+            and "contact" not in low and "question" not in low \
+            and not low.startswith("choose your pass")
+
+    for child in doc.element.body.iterchildren():
+        if child.tag == qn("w:p"):
+            t = _strip(Paragraph(child, doc).text)
+            if _ok(t):
+                return t.split("\n")[0].strip()
+        elif child.tag == qn("w:tbl"):
+            if any(child is t._tbl for t in agenda_tables):
+                break   # reached the agenda — the title (if any) came earlier
+            for row in Table(child, doc).rows:
+                for cell in row.cells:
+                    t = _strip(cell.text)
+                    if _ok(t):
+                        return t.split("\n")[0].strip()
+    return ""
 
 
 def parse_agenda_docx(path: str) -> dict:
-    """Open a .docx agenda and parse it. Uses the first table found, and also
-    extracts event meta (title, registration URL) + the sponsor logo wall."""
+    """Open a .docx agenda (the RENMAD Timed Agenda generator's output) and parse
+    it. Finds the agenda table(s) by signature — NOT by position — so it works
+    whether or not a header logo pushes them past tables[0], and concatenates
+    multiple agenda tables (multi-day / parallel tracks). Also extracts event
+    meta (title, registration URL) + the sponsor logo wall."""
     import docx  # python-docx
 
     doc = docx.Document(path)
 
-    # Event title: first non-empty paragraph (before the table).
-    event_title = ""
-    for p in doc.paragraphs:
-        t = _strip(p.text)
-        if t and "contact" not in t.lower() and "question" not in t.lower():
-            event_title = t
-            break
+    agenda_tables = [t for t in doc.tables if _is_agenda_table(t)]
+
+    # Event title = the first substantial text in DOCUMENT ORDER, before the
+    # agenda starts. Walking in order (not paragraphs-then-tables) is essential:
+    # with a header logo the title lives in a header TABLE cell and the first
+    # paragraph is actually a day header ("Monday · 1 July"); without a logo the
+    # title is the first paragraph. Either way the title comes first.
+    event_title = _first_title_text(doc, agenda_tables)
 
     rows: list[tuple[str, str]] = []
-    if doc.tables:
-        tbl = doc.tables[0]
-        for ri, row in enumerate(tbl.rows):
+    for tbl in agenda_tables:
+        for row in tbl.rows:
             cells = row.cells
             if len(cells) < 2:
                 continue
             time = _strip(cells[0].text)
             block = cells[1].text
-            # Header row ("Time | Programme | Speakers") — skip.
-            if ri == 0 and _is_header_row(time, block):
+            # Skip the column-header row of each agenda table.
+            if _is_header_row(time, block):
                 continue
-            # Some agendas put speakers in a dedicated 3rd column instead of an
-            # inline "Speakers:" marker. Fold that column into the block so the
-            # normal speaker parsing picks it up.
+            # Speakers may sit in a dedicated 3rd column instead of an inline
+            # "Speakers:" marker — fold it in so the normal parsing picks it up.
             if len(cells) >= 3:
                 spk = _strip(cells[2].text)
                 if spk:
