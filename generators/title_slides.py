@@ -140,6 +140,50 @@ def _square_top(photo: Image.Image, bias: float = 0.2) -> Image.Image:
     return photo.convert("RGB").crop((left, top, left + s, top + s))
 
 
+def _skin_centroid(img: Image.Image) -> "tuple[float, float] | None":
+    """Rough (x_frac, y_frac) centre of skin-coloured pixels — a dependency-free
+    stand-in for face detection so an off-centre subject isn't cropped out. Works
+    on a downscaled copy for speed. Returns None if too little skin is found."""
+    small = img.convert("RGB")
+    small.thumbnail((160, 160))
+    sw, sh = small.size
+    px = small.load()
+    sx = sy = n = 0
+    for y in range(sh):
+        for x in range(sw):
+            r, g, b = px[x, y]
+            mx, mn = max(r, g, b), min(r, g, b)
+            if (r > 95 and g > 40 and b > 20 and r > g and r > b
+                    and (mx - mn) > 15 and abs(r - g) > 10):
+                sx += x; sy += y; n += 1
+    if n < sw * sh * 0.02:          # < 2% skin → unreliable, let caller fall back
+        return None
+    return (sx / n) / sw, (sy / n) / sh
+
+
+def _smart_square(photo: Image.Image) -> Image.Image:
+    """Crop a photo to a square centred on the speaker's face. Uses a skin-tone
+    centroid to recover off-centre subjects (e.g. a person standing on the left of
+    a wide shot); falls back to a top-biased centre crop when unsure. Only the
+    initial framing — the user can still re-crop freely in PowerPoint."""
+    img = photo.convert("RGB")
+    w, h = img.size
+    s = min(w, h)
+    if w == h:
+        return img
+    cen = _skin_centroid(img)
+    if w > h:                       # landscape → choose the horizontal window
+        cx = cen[0] if cen else 0.5
+        left = int(round(cx * w - s / 2))
+        left = max(0, min(w - s, left))
+        return img.crop((left, 0, left + s, s))
+    # portrait → choose the vertical window, biased so the face sits a bit high
+    cy = cen[1] if cen else 0.34
+    top = int(round(cy * h - s * 0.45))
+    top = max(0, min(h - s, top))
+    return img.crop((0, top, s, top + s))
+
+
 def _crop_to_ellipse(pic):
     """Set a native picture's geometry to an ellipse → circular crop the user can
     still pan/zoom inside via PowerPoint's Crop tool. Exactly ONE prstGeom (two
@@ -282,9 +326,10 @@ def _add_circle_photo(slide, photo, cx_emu, top_emu, dia_in, theme_key, name,
         circ = _circle_png(None, name, theme_key)
         return _add_picture_fit(slide, circ, cx_emu, top_emu, dia_in, dia_in)
 
-    # 1) photo as a normal editable picture (initially fills the circle)
+    # 1) photo as a normal editable picture (initially fills the circle),
+    #    face-centred so off-centre subjects aren't cropped out of the circle
     bio = io.BytesIO()
-    _square_top(photo).save(bio, "PNG")
+    _smart_square(photo).save(bio, "PNG")
     bio.seek(0)
     pic = slide.shapes.add_picture(bio, x, top, width=dia, height=dia)
 
@@ -512,8 +557,9 @@ def _white_bg(slide):
     bg.fill.solid(); bg.fill.fore_color.rgb = WHITE; _no_line(bg); bg.shadow.inherit = False
 
 
-def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.9):
-    """Small theme logo in a corner that the title band does NOT occupy."""
+def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6):
+    """Small theme logo in a corner that neither the title band nor the speaker
+    photos occupy (top-right for 'event', bottom-right for 'marketing')."""
     logo_fn = _theme(theme_key).get("logo_filename")
     if not logo_fn:
         return
@@ -525,7 +571,7 @@ def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.9):
     tw = Inches(w_in)
     th = int(tw * h0 / w0)
     x = SLIDE_W - tw - Inches(0.3)
-    y = Inches(0.28) if layout == "event" else SLIDE_H - Emu(th) - Inches(0.25)
+    y = Inches(0.3) if layout == "event" else SLIDE_H - Emu(th) - Inches(0.25)
     slide.shapes.add_picture(lp, x, y, width=tw, height=Emu(th))
 
 
@@ -551,10 +597,13 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
     cx = SLIDE_W // 2
     ls = lang_strings or {}
 
-    # vertically centre the photo+logo+name block in the free content area
-    dia_in = 2.5
-    block_h = Inches(dia_in + 1.95)
+    # Circle as big as the free area allows (the photo is centred horizontally, so
+    # it never reaches the corner logo — no clearance needed here).
+    below_in = 1.95                          # logo zone + name block under the circle
     content_h = content_bottom - content_top
+    avail_in = content_h / EMU_PER_IN
+    dia_in = max(1.9, min(3.1, avail_in - below_in - 0.35))
+    block_h = Inches(dia_in + below_in)
     y = content_top + max(Inches(0.3), Emu(int((content_h - block_h) / 2)))
     _fy = max(int(content_top), int(y - Inches(0.4)))
     _frame = (int(Inches(2.0)), _fy, int(Inches(9.33)),
@@ -616,8 +665,8 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
         slide, theme_key, session, layout=layout, title_fit=title_fit)
 
     n = len(speakers)
-    # circle diameter shrinks as the panel grows
-    dia_in = {1: 2.7, 2: 2.6, 3: 2.35, 4: 1.95, 5: 1.65}.get(n, 1.5)
+    # circle diameter shrinks as the panel grows (bumped up — "bigger where possible")
+    dia_in = {1: 3.0, 2: 2.85, 3: 2.5, 4: 2.1, 5: 1.78}.get(n, 1.6)
     name_pt = {1: 22, 2: 20, 3: 18, 4: 16, 5: 14}.get(n, 13)
     role_pt = max(10, name_pt - 5)
     comp_pt = max(11, name_pt - 4)
@@ -625,11 +674,23 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     margin = Inches(0.55)
     usable = SLIDE_W - 2 * margin
     col_w = usable / n
-    # vertically centre the speaker row in the free content area
+    below_in = 0.14 + 0.82 + 1.4             # logo zone + name block under each circle
     logo_zone_in = 0.82
-    block_h = Inches(dia_in + 0.14 + logo_zone_in + 1.4)
     content_h = content_bottom - content_top
+    block_h = Inches(dia_in + below_in)
     photo_top = content_top + max(Inches(0.3), Emu(int((content_h - block_h) / 2)))
+
+    # Event layout pushes photos high → keep them clear of the top-right corner
+    # logo so it never sits on top of a circle. (Single speakers are centred and
+    # don't need this; panels can have a circle right under the logo.)
+    if layout == "event":
+        photo_top = max(photo_top, content_top + Inches(1.1))
+
+    # Cap the circle so circle + text still fit above the bottom band / content end.
+    avail_below_in = (content_bottom - photo_top) / EMU_PER_IN - below_in - 0.1
+    if dia_in > avail_below_in:
+        dia_in = max(1.4, avail_below_in)
+    max_logo_w    = min(col_w / EMU_PER_IN - 0.25, 1.8)
 
     # ── fixed vertical zones so every column's logo / name / role line up ─────
     photo_bottom  = photo_top + Inches(dia_in)
@@ -759,34 +820,52 @@ def _break_icon(kind: str):
         "cocktail": icons.cocktail, "networking": icons.people,
         "welcome": icons.clock, "closing": icons.clock,
     }.get(kind)
-    return fn(240, (255, 255, 255)) if fn else None
+    if not fn:
+        return None
+    # Supersample ×4 then downscale → crisp, anti-aliased glyph.
+    big = fn(960, (255, 255, 255))
+    return big.resize((240, 240), Image.LANCZOS)
 
 
 def add_break_slide(prs: Presentation, theme_key: str, session: dict,
                     lang_strings: dict | None = None, layout: str = "marketing"):
     """A full-bleed theme-colour divider for breaks/sections (coffee, lunch,
-    cocktail, registration, welcome…): white icon + the (bilingual) label + time.
-    All text is native/editable."""
+    cocktail, registration, welcome…): a white icon inside a thin ring, the
+    (bilingual) label and the time. All text is native/editable."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SLIDE_W, SLIDE_H)
     bg.fill.solid(); bg.fill.fore_color.rgb = _theme_rgb(theme_key)
     _no_line(bg); bg.shadow.inherit = False
 
+    cx = SLIDE_W // 2
     icon = _break_icon(session.get("break_kind"))
     if icon is not None:
-        _add_picture_fit(slide, icon, SLIDE_W // 2, Inches(1.9), 1.35, 1.35)
+        # a thin white ring framing the icon — gives the flat slide some structure
+        ring_d = Inches(2.5)
+        ring = slide.shapes.add_shape(MSO_SHAPE.OVAL,
+                                      int(cx - ring_d / 2), Inches(1.05), ring_d, ring_d)
+        ring.fill.background()
+        ring.line.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        ring.line.width = Pt(2.0)
+        ring.shadow.inherit = False
+        try:
+            ring.line.fill.fore_color.brightness = 0  # keep solid white
+        except Exception:
+            pass
+        _add_picture_fit(slide, icon, cx, Inches(1.72), 1.18, 1.18)
 
     title = _strip_emoji(session.get("title", "")).upper()
     title2 = _strip_emoji(session.get("title_2", "")).upper()
-    paras = [[(title, F_BLACK, 48, WHITE, True)]]
+    paras = [[(title, F_BLACK, 50, WHITE, True)]]
     if title2 and title2 != title:
-        paras.append([(title2, F_BOLD, 30, RGBColor(0xF0, 0xF0, 0xF0), False)])
-    _add_text(slide, Inches(1.0), Inches(3.4), Inches(11.33), Inches(1.9), paras)
+        paras.append([(title2, F_BOLD, 30, RGBColor(0xFF, 0xE8, 0xDC), False)])
+    _add_text(slide, Inches(1.0), Inches(4.05), Inches(11.33), Inches(1.7), paras)
 
     t = (session.get("time") or "").strip()
     if t:
-        _add_text(slide, Inches(1.0), Inches(5.35), Inches(11.33), Inches(0.8),
-                  [[(t, F_BOLD, 28, RGBColor(0xFF, 0xFF, 0xFF), True)]])
+        t = re.sub(r"\s*[|\n]\s*", " – ", t).strip()
+        _add_text(slide, Inches(1.0), Inches(5.95), Inches(11.33), Inches(0.7),
+                  [[(t, F_BOLD, 26, RGBColor(0xFF, 0xE8, 0xDC), True)]])
     return slide
 
 

@@ -139,21 +139,34 @@ def coffee(size: int = 26, color: tuple = (255, 255, 255)) -> Image.Image:
 
 
 def meal(size: int = 26, color: tuple = (255, 255, 255)) -> Image.Image:
-    """Fork + knife (for lunch)."""
+    """Fork + knife (for lunch). Drawn with floats; supersample for crispness."""
     img, d = _canvas(size)
-    p = max(1, size // 16)
     s = size
-    top, bot = s * 2 // 12, s * 10 // 12
-    # knife (right)
-    kx = s * 8 // 12
-    d.line([kx, top, kx, bot], fill=color, width=p * 2)
-    d.polygon([(kx - p * 2, top), (kx, top), (kx, top + s // 3)], fill=color)
-    # fork (left)
-    fx = s * 4 // 12
-    d.line([fx, s * 5 // 12, fx, bot], fill=color, width=p * 2)
-    for tx in (fx - p * 3, fx, fx + p * 3):
-        d.line([tx, top, tx, s * 5 // 12], fill=color, width=p)
-    d.line([fx - p * 3, s * 5 // 12, fx + p * 3, s * 5 // 12], fill=color, width=p)
+
+    def ln(x1, y1, x2, y2, wf):
+        d.line([(x1, y1), (x2, y2)], fill=color, width=max(1, int(round(s * wf))))
+
+    y0, neck, ybot = s * 0.15, s * 0.45, s * 0.86      # tine top / fork neck / handle foot
+    tine_w, handle_w = 0.028, 0.058
+
+    # ── fork (left): 4 tines → a small head block → a thin handle ──────────────
+    fx, span = s * 0.34, s * 0.115
+    for frac in (-1.0, -0.34, 0.34, 1.0):
+        ln(fx + frac * span, y0, fx + frac * span, neck, tine_w)
+    d.rounded_rectangle([fx - span, neck, fx + span, neck + s * 0.07],
+                        radius=max(1, int(s * 0.025)), fill=color)
+    ln(fx, neck + s * 0.05, fx, ybot, handle_w)
+    r = s * handle_w / 2
+    d.ellipse([fx - r, ybot - r, fx + r, ybot + r], fill=color)               # rounded foot
+
+    # ── knife (right): handle + a leaf-shaped blade on the upper half ──────────
+    kx = s * 0.66
+    ln(kx, neck * 0.95, kx, ybot, handle_w)
+    r = s * handle_w / 2
+    d.ellipse([kx - r, ybot - r, kx + r, ybot + r], fill=color)
+    d.polygon([(kx, y0), (kx + s * 0.052, y0 + (neck - y0) * 0.55),
+               (kx, neck * 0.98), (kx - s * 0.018, neck * 0.98),
+               (kx - s * 0.018, y0 + (neck - y0) * 0.3)], fill=color)
     return img
 
 
