@@ -40,6 +40,8 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
+st.caption("🟢 Build **2026-06-16b** · Tabler icons · one-click download "
+           "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
 
@@ -255,16 +257,10 @@ with st.expander("⚙️ Options (the defaults usually work)", expanded=False):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6 · GENERATE
+# 6 · DOWNLOAD  (builds on the fly — a single click gets you the file)
 # ══════════════════════════════════════════════════════════════════════════════
 st.divider()
-st.header("6 · Generate")
-
-ready = agenda1 is not None
-gen_btn = st.button("🎬 Generate title slides", type="primary",
-                    use_container_width=True, disabled=not ready)
-if not ready:
-    st.info("Upload at least the primary-language agenda to start.")
+st.header("6 · Download")
 
 
 def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
@@ -284,41 +280,52 @@ def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
     return {"bytes": data, "report": res.get("report", {})}
 
 
-if gen_btn and ready:
-    decks: list[tuple[str, dict]] = []   # (filename, {bytes, report})
-    try:
-        with st.spinner("Generating…"):
-            if is_event:
-                # ONE bilingual deck (primary title bigger, secondary below)
-                deck_agenda = _merge_bilingual(agenda1, agenda2) if agenda2 else agenda1
-                res = _build_one(deck_agenda, lang1, "event", "event_title_slides")
-                decks.append(("event_title_slides.pptx", res))
-            else:
-                # TWO monolingual marketing decks (one per language)
-                res1 = _build_one(agenda1, lang1, "marketing", f"marketing_{lang1}")
-                decks.append((f"marketing_title_slides_{lang1}.pptx", res1))
-                if agenda2:
-                    res2 = _build_one(agenda2, lang2, "marketing", f"marketing_{lang2}")
-                    decks.append((f"marketing_title_slides_{lang2}.pptx", res2))
-        st.session_state["_ts_decks"] = decks
-        st.success(f"✅ Generated {len(decks)} deck(s).")
-    except Exception as e:
-        import traceback
-        st.error(f"Generation failed: {e}")
-        st.code(traceback.format_exc())
+if agenda1 is None:
+    st.info("Upload at least the primary-language agenda to get your slides.")
+else:
+    # Build whenever the inputs change, keyed by a signature, so the download
+    # button below is always armed with an up-to-date deck → one click to save.
+    import hashlib
+    sig = [mode, theme_key, lang1, lang2, title_fit, opt_cover, opt_breaks,
+           tuple(util_pick), opt_cards, event_band]
+    hsh = hashlib.sha1("|".join(str(x) for x in sig).encode())
+    if ag_file1:
+        hsh.update(ag_file1.getvalue())
+    if ag_file2:
+        hsh.update(ag_file2.getvalue())
+    for fn in sorted(pool):
+        hsh.update(fn.encode()); hsh.update(pool[fn])
+    key = hsh.hexdigest()
 
+    cache = st.session_state.setdefault("_ts_cache", {})
+    if cache.get("key") != key:
+        try:
+            with st.spinner("Building your title slides…"):
+                built = []
+                if is_event:
+                    deck_agenda = _merge_bilingual(agenda1, agenda2) if agenda2 else agenda1
+                    built.append(("event_title_slides.pptx",
+                                  _build_one(deck_agenda, lang1, "event", "event")))
+                else:
+                    built.append((f"marketing_title_slides_{lang1}.pptx",
+                                  _build_one(agenda1, lang1, "marketing", f"m_{lang1}")))
+                    if agenda2:
+                        built.append((f"marketing_title_slides_{lang2}.pptx",
+                                      _build_one(agenda2, lang2, "marketing", f"m_{lang2}")))
+            cache["key"] = key
+            cache["decks"] = built
+        except Exception as e:
+            import traceback
+            cache["key"] = key
+            cache["decks"] = []
+            st.error(f"Generation failed: {e}")
+            st.code(traceback.format_exc())
 
-# ── Results ──────────────────────────────────────────────────────────────────
-decks = st.session_state.get("_ts_decks")
-if decks:
-    st.divider()
-    for fname, res in decks:
-        st.subheader(f"📊 {fname}")
+    MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    for fname, res in cache.get("decks", []):
         st.download_button(
-            f"⬇️ Download {fname}",
-            data=res["bytes"], file_name=fname,
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            use_container_width=True, key=f"dl_{fname}",
+            f"⬇️ Download {fname}", data=res["bytes"], file_name=fname, mime=MIME,
+            type="primary", use_container_width=True, key=f"dl_{fname}",
         )
         rep = res.get("report") or {}
         miss_p = rep.get("photo_missing") or []
