@@ -35,7 +35,8 @@ _COOKIE = (
 
 _ICONS = {
     # mug with a real cookie resting on the rim (Tabler mug + cookie)
-    "coffee": _MUG + f'<g transform="translate(3.7,-4.3) scale(0.48)" stroke-width="4.0">{_COOKIE}</g>',
+    "coffee": (f'<g transform="translate(0,2.6)">{_MUG}</g>'
+               f'<g transform="translate(4.82,-0.4) scale(0.4)" stroke-width="5">{_COOKIE}</g>'),
     # fork + knife (Tabler tools-kitchen-2)
     "meal": ('<path d="M19 3v12h-5c-.023 -3.681 .184 -7.406 5 -12zm0 12v6h-1v-3m-10 -14v17'
              'm-3 -17v3a3 3 0 1 0 6 0v-3"/>'),
