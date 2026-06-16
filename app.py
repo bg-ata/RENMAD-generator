@@ -26,80 +26,32 @@ st.title("🎨 RENMAD Content Generator")
 st.markdown("On-brand marketing images for RENMAD webinars and events. Pick a tool:")
 st.write("")
 
-# Equal-height cards with the button pinned to the bottom, so the four tiles
-# line up regardless of how much copy each one has.
+# One tile per tool: title + a single line. The detail lives inside each tool.
+# A 2×2 grid keeps the cards roomy; align-items:stretch makes each row's pair
+# match height so the buttons line up.
 st.markdown(
-    """
-    <style>
-    div[data-testid="stHorizontalBlock"] { align-items: stretch; }
-    div[data-testid="stVerticalBlockBorderWrapper"] { height: 100%; }
-    div[data-testid="stVerticalBlockBorderWrapper"] > div { height: 100%; }
-    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stVerticalBlock"] {
-        height: 100%; display: flex; flex-direction: column;
-    }
-    div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stButton"] {
-        margin-top: auto;
-    }
-    </style>
-    """,
+    "<style>div[data-testid='stHorizontalBlock']{align-items:stretch;}"
+    "div[data-testid='stVerticalBlockBorderWrapper']{height:100%;}</style>",
     unsafe_allow_html=True,
 )
 
-col_a, col_b, col_c, col_d = st.columns(4, gap="large")
+TILES = [
+    ("🎤 Webinar", "Promo images for a single webinar.",
+     "Open Webinar", "pages/1_🎤_Webinar.py", "goto_webinar"),
+    ("📅 Event", "Full-event images — Ingo, sponsor banners, logo wall.",
+     "Open Event", "pages/2_📅_Event.py", "goto_event"),
+    ("🎬 Title slides", "Session title slides from an agenda — marketing or event.",
+     "Open Title slides", "pages/4_🎬_Title_slides.py", "goto_titleslides"),
+    ("📊 Reports", "Post-webinar audience report as a branded PPTX.",
+     "Open Reports", "pages/3_📊_Reports.py", "goto_reports"),
+]
 
-with col_a:
-    with st.container(border=True):
-        st.markdown(
-            """
-### 🎤 Webinar
-Promo images for **one webinar**.
-
-- Title slide (editable PPTX)
-- LinkedIn, miniature & Ingo images
-"""
-        )
-        if st.button("Open Webinar →", type="primary", use_container_width=True, key="goto_webinar"):
-            st.switch_page("pages/1_🎤_Webinar.py")
-
-with col_b:
-    with st.container(border=True):
-        st.markdown(
-            """
-### 📅 Event
-Images for a **full event** — pick one to make:
-
-- 📸 **Ingo** — event infographic (ES + EN)
-- 🎨 **Marketing partners** — 4 banners per sponsor
-- 🖼️ **Logo wall** — all sponsors by tier
-"""
-        )
-        if st.button("Open Event →", type="primary", use_container_width=True, key="goto_event"):
-            st.switch_page("pages/2_📅_Event.py")
-
-with col_c:
-    with st.container(border=True):
-        st.markdown(
-            """
-### 🎬 Title slides
-Session **title slides** from an agenda (editable PPTX).
-
-- 📣 **Marketing** — title top, 2 decks
-- 🎤 **Event** — title bottom + transitions
-"""
-        )
-        if st.button("Open Title slides →", type="primary", use_container_width=True, key="goto_titleslides"):
-            st.switch_page("pages/4_🎬_Title_slides.py")
-
-with col_d:
-    with st.container(border=True):
-        st.markdown(
-            """
-### 📊 Reports
-**Audience report** after a webinar.
-
-- Branded PPTX (EN · ES · IT · PL)
-- Built from the webinar link + Zoom CSVs
-"""
-        )
-        if st.button("Open Reports →", type="primary", use_container_width=True, key="goto_reports"):
-            st.switch_page("pages/3_📊_Reports.py")
+for row_start in (0, 2):
+    cols = st.columns(2, gap="large")
+    for col, (title, blurb, btn, page, key) in zip(cols, TILES[row_start:row_start + 2]):
+        with col:
+            with st.container(border=True):
+                st.markdown(f"### {title}\n{blurb}")
+                if st.button(f"{btn} →", type="primary",
+                             use_container_width=True, key=key):
+                    st.switch_page(page)
