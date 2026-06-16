@@ -378,7 +378,12 @@ def _add_divider(slide, cx: Emu, cy: Emu, width_in=2.6, rgb=WHITE):
 
 # ── Title measurement (PIL-measured so nothing overflows the band) ───────────
 _PX_PER_IN = 144.0   # 1920 px / 13.333 in
-_LINE_FACTOR = 1.16
+_LINE_FACTOR = 1.24  # ~PowerPoint single-line height for Montserrat Black (a bit
+                     # generous so the band never ends up shorter than the text)
+# Width used to MEASURE wrapping — deliberately narrower than the rendered text
+# box (≈11.37in usable) so PIL never under-counts lines vs PowerPoint's slightly
+# wider real font metrics (→ the band is sized for ≥ the lines PPT will render).
+_BAND_MEASURE_W = 10.7
 _FONT_FILES = {
     F_BLACK: "Montserrat-Black.ttf",
     F_BOLD:  "Montserrat-SemiBold.ttf",
@@ -434,7 +439,7 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
     """
     title1 = (session.get("title") or "").strip()
     title2 = (session.get("title_2") or "").strip()
-    max_w_in = 11.4
+    max_w_in = _BAND_MEASURE_W
     pad_in = 0.24
 
     if title_fit == "uniform":
@@ -449,21 +454,23 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
             en_pt, en_lines = _fit_size(title1, F_BLACK, max_w_in, avail,
                                         hi=34, lo=15)
             it_pt = it_lines = None
-    else:  # flexible — keep the title big, size the band to it
+    else:  # flexible — keep the title big, grow the band to fit it (shrinking the
+           # font only if it would otherwise overflow the band's max height)
+        BAND_MAX = 3.0
         en_pt = 30 if layout == "marketing" else 28
-        en_lines = _measure(title1, F_BLACK, en_pt, max_w_in * _PX_PER_IN)[0]
-        while len(en_lines) > 3 and en_pt > 18:
-            en_pt -= 2
+        while True:
             en_lines = _measure(title1, F_BLACK, en_pt, max_w_in * _PX_PER_IN)[0]
-        if title2:
-            it_pt = max(15, int(en_pt * 0.72))
-            it_lines = _measure(title2, F_BOLD, it_pt, max_w_in * _PX_PER_IN)[0]
-        else:
-            it_pt = it_lines = None
-        en_h = len(en_lines) * (en_pt * 2 * _LINE_FACTOR) / _PX_PER_IN
-        it_h = (len(it_lines) * (it_pt * 2 * _LINE_FACTOR) / _PX_PER_IN) if title2 else 0
-        div_in = 0.20 if title2 else 0
-        band_h_in = min(2.8, max(1.2, 2 * pad_in + en_h + div_in + it_h))
+            it_pt = max(15, int(en_pt * 0.72)) if title2 else None
+            it_lines = (_measure(title2, F_BOLD, it_pt, max_w_in * _PX_PER_IN)[0]
+                        if title2 else None)
+            en_h = len(en_lines) * (en_pt * 2 * _LINE_FACTOR) / _PX_PER_IN
+            it_h = (len(it_lines) * (it_pt * 2 * _LINE_FACTOR) / _PX_PER_IN) if title2 else 0
+            div_in = 0.20 if title2 else 0
+            band_h_in = 2 * pad_in + en_h + div_in + it_h
+            if (len(en_lines) <= 3 and band_h_in <= BAND_MAX) or en_pt <= 16:
+                break
+            en_pt -= 2
+        band_h_in = max(1.2, min(BAND_MAX, band_h_in))
 
     band_h = Inches(band_h_in)
     if layout == "event":
