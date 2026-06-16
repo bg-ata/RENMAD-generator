@@ -2,10 +2,11 @@
 """
 RENMAD Content Generator — landing page.
 
-Three tools live inside:
-  • 🎤 Webinar  — promo images for a single webinar session
-  • 📅 Event    — event images: Ingo, Marketing partners (sponsor banners), or Logo wall
-  • 📊 Reports  — post-webinar audience report (branded PPTX from Zoom CSVs)
+Four tools live inside:
+  • 🎤 Webinar      — promo images for a single webinar session
+  • 📅 Event        — event images: Ingo, Marketing partners (sponsor banners), or Logo wall
+  • 🎬 Title slides — agenda → on-screen / marketing title slides (editable PPTX)
+  • 📊 Reports      — post-webinar audience report (branded PPTX from Zoom CSVs)
 """
 import os
 import streamlit as st
@@ -25,7 +26,7 @@ st.title("🎨 RENMAD Content Generator")
 st.markdown("On-brand marketing images for RENMAD webinars and events. Pick a tool:")
 st.write("")
 
-col_a, col_b, col_c = st.columns(3, gap="large")
+col_a, col_b, col_c, col_d = st.columns(4, gap="large")
 
 with col_a:
     with st.container(border=True):
@@ -57,6 +58,22 @@ Images for a **full event** — pick one to make:
             st.switch_page("pages/2_📅_Event.py")
 
 with col_c:
+    with st.container(border=True):
+        st.markdown(
+            """
+### 🎬 Title slides
+From an **event agenda** — pick one:
+
+- 📣 **Marketing** — title top, no transitions (2 decks)
+- 🎤 **Event** — title bottom, with transitions (1 bilingual)
+
+Fully editable PPTX.
+"""
+        )
+        if st.button("Open Title slides →", type="primary", use_container_width=True, key="goto_titleslides"):
+            st.switch_page("pages/4_🎬_Title_slides.py")
+
+with col_d:
     with st.container(border=True):
         st.markdown(
             """
