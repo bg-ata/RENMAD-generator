@@ -187,6 +187,7 @@
     <span id="syncDot" style="font-size:12px;font-weight:600;margin-left:2px;display:none"></span>
     <button class="btn" id="btnOpen">📂 Projects</button>
     <button class="btn ghost" id="btnNew">＋ New</button>
+    <select id="expLang" class="th" title="Which language to export"></select>
     <button class="btn" id="btnWord">📝 Word</button>
     <button class="btn" id="btnDocx">📄 .docx</button>
     <button class="btn primary" id="btnPdf">📥 PDF</button>
@@ -287,6 +288,7 @@ function render(){
   $("btnTrAll").textContent="🌐 Translate all → "+LANGS[S.langB];
   fillSelect($("theme"),THEMES,S.themeKey,(k,v)=>v.name);
   fillSelect($("langA"),LANGS,S.langA,(k,v)=>v); fillSelect($("langB"),LANGS,S.langB,(k,v)=>v);
+  fillExpLang();
   renderSidebar();
   if(view.type==="day" && !dayById(view.id)) view={type:"overview"};
   const c=$("content");
@@ -887,7 +889,37 @@ function buildDoc(side){ const hex=THEMES[S.themeKey].hex;
   const wordPage=`@page WordSection1{size:595.3pt 841.9pt;margin:1.2cm 1cm 2.0cm 1cm;mso-footer:f1;mso-footer-margin:0.5cm;}div.WordSection1{page:WordSection1}`;
   return `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${esc(S.titleA||"Agenda")}</title>${FONTLINK}<style>${docCSS(hex)}${wordPage}</style></head><body><div class="WordSection1">${buildBody(side,true)}${wordFooter(side,hex)}</div></body></html>`; }
 function bothSides(){ return S.titleB || S.days.some(d=>d.tracks.some(t=>t.blocks.some(b=>b.bT||b.bD))); }
-function exportWord(){ const sides=bothSides()?["a","b"]:["a"]; const files=sides.map(side=>{ const lc=side==="a"?S.langA:S.langB; return {blob:new Blob(['﻿'+buildDoc(side)],{type:"application/msword"}), name:slug(S.titleA)+"_"+lc+".doc"}; }); files.forEach((f,i)=>setTimeout(()=>downloadBlob(f.blob,f.name), i*500)); toast("Word file(s) downloaded — open in Word"); }
+// Refresh the "export language" dropdown (Both / langA / langB) when languages change.
+function fillExpLang(){ const sel=$("expLang"); if(!sel) return; const prev=sel.value||"both";
+  const opts=[["both","🌐 Both languages"],["a",LANGS[S.langA]||"Language A"],["b",LANGS[S.langB]||"Language B"]];
+  sel.innerHTML=opts.map(([k,v])=>`<option value="${k}" ${k===prev?"selected":""}>${v}</option>`).join("");
+  if(!bothSides()) sel.value="a"; }
+// Which language side(s) the export buttons should produce ("both" → two separate files).
+function exportSides(){ if(!bothSides()) return ["a"]; const v=($("expLang")&&$("expLang").value)||"both";
+  return v==="a"?["a"]:v==="b"?["b"]:["a","b"]; }
+// Save one or more files as SEPARATE downloads — reliably, even from a local file:// page.
+// A file:// page is allowed only ONE automatic download per user gesture: the 1st file rides
+// the export-button click, and every further file waits behind its own button click (a real
+// user gesture is never blocked). Keeps each language a distinct file — no merging, no zip.
+function saveFiles(files){ files=(files||[]).filter(f=>f&&f.blob);
+  if(!files.length){ toast("Nothing to download"); return; }
+  downloadBlob(files[0].blob, files[0].name);
+  if(files.length===1){ toast("Downloaded "+files[0].name); return; }
+  queueNextDownload(files.slice(1)); }
+function queueNextDownload(rest){
+  const old=$("dlnext"); if(old) old.remove();
+  const hex=(THEMES[S.themeKey]&&THEMES[S.themeKey].hex)||"#E84830";
+  const bar=document.createElement("div"); bar.id="dlnext";
+  bar.style.cssText="position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:2147483647;background:#1C2529;color:#fff;padding:11px 14px;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.4);font:600 13px Arial,sans-serif;display:flex;align-items:center;gap:12px;max-width:92vw";
+  const span=document.createElement("span"); span.textContent="✓ First file saved — "+rest.length+" more:";
+  const btn=document.createElement("button"); btn.textContent="⬇ Download "+rest[0].name;
+  btn.style.cssText="background:"+hex+";color:#fff;border:0;border-radius:7px;padding:8px 12px;font:700 13px Arial,sans-serif;cursor:pointer;white-space:nowrap";
+  const x=document.createElement("button"); x.textContent="✕"; x.title="Cancel remaining downloads";
+  x.style.cssText="background:transparent;color:#fff;border:0;font:700 15px Arial;cursor:pointer;line-height:1";
+  btn.onclick=()=>{ downloadBlob(rest[0].blob, rest[0].name); const more=rest.slice(1); bar.remove(); if(more.length) queueNextDownload(more); else toast("All files downloaded"); };
+  x.onclick=()=>bar.remove();
+  bar.appendChild(span); bar.appendChild(btn); bar.appendChild(x); document.body.appendChild(bar); }
+function exportWord(){ const sides=exportSides(); const files=sides.map(side=>{ const lc=side==="a"?S.langA:S.langB; return {blob:new Blob(['﻿'+buildDoc(side)],{type:"application/msword"}), name:slug(S.titleA)+"_"+lc+".doc"}; }); saveFiles(files); }
 function hexRgb(h){ h=(h||"#000000").replace("#",""); if(h.length===3) h=h.split("").map(c=>c+c).join(""); return [parseInt(h.slice(0,2),16)||0,parseInt(h.slice(2,4),16)||0,parseInt(h.slice(4,6),16)||0]; }
 function pdfFooter(pdf,pw,ph,rgb,cta,url,cname,cmail){
   const ml=6, w=pw-2*ml; const hasC=!!(cname||cmail);
@@ -980,13 +1012,13 @@ async function buildDocxBlob(side){
 }
 async function exportDocx(){
   if(typeof docx==="undefined"){ toast("Need internet for .docx — using .doc instead"); exportWord(); return; }
-  try{ toast("Building .docx…"); const sides=bothSides()?["a","b"]:["a"];
-    for(const side of sides){ const blob=await buildDocxBlob(side); downloadBlob(blob, slug(S.titleA||"agenda")+"_"+(side==="a"?S.langA:S.langB)+".docx"); }
-    toast(".docx downloaded"); }catch(e){ toast(".docx failed: "+(e.message||e)); }
+  try{ toast("Building .docx…"); const sides=exportSides(); const files=[];
+    for(const side of sides){ const blob=await buildDocxBlob(side); files.push({blob, name: slug(S.titleA||"agenda")+"_"+(side==="a"?S.langA:S.langB)+".docx"}); }
+    saveFiles(files); }catch(e){ toast(".docx failed: "+(e.message||e)); }
 }
 async function downloadPdf(){
   if(typeof html2pdf==="undefined"){ toast("Need internet to build the PDF file — opening Print instead."); exportPdf(); return; }
-  const both=bothSides(); const sides=both?["a","b"]:["a"];
+  const sides=exportSides(); const files=[];
   for(const side of sides){ const lc=side==="a"?S.langA:S.langB; const hex=THEMES[S.themeKey].hex;
     const overlay=document.createElement("div");
     overlay.style.cssText="position:fixed;inset:0;background:#fff;z-index:2147483647;overflow:auto";
@@ -1000,18 +1032,20 @@ async function downloadPdf(){
     try{
       if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
       await new Promise(r=>setTimeout(r,200));
-      await html2pdf().set({ margin:[7,6,22,6], filename:slug(S.titleA||"agenda")+"_"+lc+".pdf", image:{type:"jpeg",quality:0.97}, html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",logging:false}, jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}, pagebreak:{mode:["css","legacy"]} })
+      const blob=await html2pdf().set({ margin:[7,6,22,6], filename:slug(S.titleA||"agenda")+"_"+lc+".pdf", image:{type:"jpeg",quality:0.97}, html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",logging:false}, jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}, pagebreak:{mode:["css","legacy"]} })
         .from(frameEl).toPdf().get("pdf").then(function(pdf){
           const n=pdf.internal.getNumberOfPages(); const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
           const skipLast=!!S.wallImg;   // last page shows the logo wall instead of the footer
           for(let i=1;i<=n;i++){ if(skipLast && i===n) continue; pdf.setPage(i); pdfFooter(pdf,pw,ph,rgb,cta,url,cname,cmail); }
-        }).save();
+          return pdf.output("blob");
+        });
+      files.push({blob, name: slug(S.titleA||"agenda")+"_"+lc+".pdf"});
     }catch(e){ toast("PDF failed: "+(e.message||e)); }
     finally{ document.body.removeChild(overlay); }
   }
-  toast("PDF downloaded — footer on every page");
+  saveFiles(files);
 }
-function exportPdf(){ const both=bothSides(); const sides=both?["a","b"]:["a"]; let inner=""; sides.forEach((side,i)=>{ inner+=(i>0?'<div style="page-break-before:always"></div>':'')+buildBody(side); }); const hex=THEMES[S.themeKey].hex; const w=window.open("","_blank"); if(!w){ toast("Pop-up blocked — allow pop-ups or use Word"); return; } w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(S.titleA||"Agenda")}</title>${FONTLINK}<style>${docCSS(hex)}</style></head><body>${inner}</body></html>`); w.document.close(); const go=()=>{ try{ w.focus(); w.print(); }catch(e){} }; w.onload=go; setTimeout(go,650); }
+function exportPdf(){ const sides=exportSides(); let inner=""; sides.forEach((side,i)=>{ inner+=(i>0?'<div style="page-break-before:always"></div>':'')+buildBody(side); }); const hex=THEMES[S.themeKey].hex; const w=window.open("","_blank"); if(!w){ toast("Pop-up blocked — allow pop-ups or use Word"); return; } w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(S.titleA||"Agenda")}</title>${FONTLINK}<style>${docCSS(hex)}</style></head><body>${inner}</body></html>`); w.document.close(); const go=()=>{ try{ w.focus(); w.print(); }catch(e){} }; w.onload=go; setTimeout(go,650); }
 
 // ── Toast / top bar ─────────────────────────────────────────────────────────
 let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("show"),2800); }
