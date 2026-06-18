@@ -569,25 +569,46 @@ def _add_picture_fit(slide, path_or_img, cx_emu, top_emu, max_w_in, max_h_in,
     return slide.shapes.add_picture(src, int(cx_emu - w / 2), y, width=w, height=h)
 
 
+def _knockout_bg(rgba: Image.Image, thresh: int = 26) -> Image.Image:
+    """Make a logo's WHITE background transparent by flood-filling near-white from
+    the border inward (so interior white in the artwork is preserved). This stops
+    opaque white-box logos (e.g. SMBC.png, a flat RGB image) from covering the
+    circle's drop shadow. No-op for logos whose edges aren't near-white."""
+    try:
+        import numpy as np
+        from PIL import ImageDraw
+    except Exception:
+        return rgba
+    w, h = rgba.size
+    if w < 3 or h < 3:
+        return rgba
+    comp = Image.alpha_composite(
+        Image.new("RGBA", rgba.size, (255, 255, 255, 255)), rgba).convert("RGB")
+    SENT = (255, 0, 254)
+    seeds = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+             (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2)]
+    filled = False
+    for sx, sy in seeds:
+        r, g, b = comp.getpixel((sx, sy))
+        if min(r, g, b) >= 230:                 # near-white edge → background
+            ImageDraw.floodfill(comp, (sx, sy), SENT, thresh=thresh)
+            filled = True
+    if not filled:
+        return rgba
+    out = np.array(rgba.convert("RGBA"))
+    mask = (np.array(comp) == SENT).all(axis=2)
+    out[mask, 3] = 0
+    return Image.fromarray(out, "RGBA")
+
+
 def _trim_logo(img: Image.Image) -> Image.Image:
-    """Crop away surrounding transparent / white margin so only the artwork
-    counts when sizing (so padding doesn't make a logo look small or big)."""
-    rgba = img.convert("RGBA")
+    """Knock out the white background, then crop to the artwork so only the mark
+    counts when sizing (padding doesn't make a logo look small or big, and an
+    opaque white box can't cut the circle shadow)."""
+    rgba = _knockout_bg(img.convert("RGBA"))
     abox = rgba.split()[3].getbbox()
     if abox:
         rgba = rgba.crop(abox)
-    try:
-        white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
-        comp = Image.alpha_composite(white, rgba).convert("RGB")
-        diff = ImageChops.difference(comp, Image.new("RGB", comp.size, (255, 255, 255)))
-        cbox = diff.convert("L").point(lambda p: 255 if p > 18 else 0).getbbox()
-        if cbox:
-            cw, ch = cbox[2] - cbox[0], cbox[3] - cbox[1]
-            w, h = rgba.size
-            if cw * ch >= 0.015 * w * h:          # guard: don't nuke light-on-transparent marks
-                rgba = rgba.crop(cbox)
-    except Exception:
-        pass
     return rgba
 
 
