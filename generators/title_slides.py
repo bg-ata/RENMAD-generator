@@ -349,7 +349,9 @@ def _add_circle_photo(slide, photo, cx_emu, top_emu, dia_in, theme_key, name,
     ring.line.color.rgb = RGBColor(0x2A, 0x2E, 0x31)
     ring.line.width = Pt(1.25)
     ring.shadow.inherit = False
-    _soft_shadow(ring)
+    # even halo (dist≈0) so the shade wraps the whole circle instead of being a
+    # directional drop that looks cut off at the top
+    _soft_shadow(ring, blur_in=0.075, dist_in=0.0, alpha=30)
     return pic
 
 
@@ -514,7 +516,7 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
                   Inches(11.47), Inches(it_h + 0.05),
                   it_runs, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP)
 
-    return content_top, content_bottom
+    return content_top, content_bottom, en_pt
 
 
 def _add_text(slide, x, y, w, h, runs, align=PP_ALIGN.CENTER,
@@ -586,6 +588,21 @@ def _trim_logo(img: Image.Image) -> Image.Image:
     except Exception:
         pass
     return rgba
+
+
+def _logo_hw(logo, max_w_in, max_h_in, nominal_in):
+    """The display (width, height) in inches a logo would get under the equal-area
+    rule — so callers can size the gap below the photo to the logo's real height
+    (short wordmarks sit close; tall/square logos get the room they need)."""
+    t = _trim_logo(logo)
+    w_px, h_px = t.size
+    if w_px <= 0 or h_px <= 0:
+        return (nominal_in, nominal_in)
+    aspect = w_px / h_px
+    dw = nominal_in * math.sqrt(aspect)
+    dh = nominal_in / math.sqrt(aspect)
+    k = min(1.0, max_w_in / dw, max_h_in / dh)
+    return (dw * k, dh * k)
 
 
 def _add_logo_balanced(slide, logo, cx_emu, max_w_in, max_h_in, bottom_emu, nominal_in):
@@ -675,7 +692,7 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
     _white_bg(slide)
 
     _top_off = _SPX_RESERVE if (spx_space and bp == "top") else Emu(0)
-    content_top, content_bottom = _add_title_band(
+    content_top, content_bottom, title_pt = _add_title_band(
         slide, theme_key, session, title_fit=title_fit, band_pos=bp, top_offset=_top_off)
     if spx_space:
         _add_spx_strip(slide, theme_key)
@@ -689,18 +706,31 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
     company = (speaker.get("company") or "").strip()
     is_mod = bool(speaker.get("is_moderator"))
 
-    # Coherent stack (same logic as a 1-up panel): photo → logo zone (logo seats
-    # BELOW the photo, never overlapping) → name → role. The block is centred in
-    # the free area and the photo is CAPPED so nothing collides. Fonts match the
-    # panel scale (hero-ish but not oversized).
+    # Name/role stay SUBORDINATE to the session title (≤ 2/3 of it) so a solo
+    # card never competes with the title.
+    name_pt = max(12, int(round(title_pt * 0.66)))
+    role_pt = max(10, name_pt - 4)
+    comp_pt = max(11, name_pt - 2)
+    _ln = lambda pt: pt * 2 * _LINE_FACTOR / _PX_PER_IN
+    name_block_in = _ln(name_pt) + (_ln(role_pt) if role else 0) \
+                    + (_ln(role_pt) if is_mod else 0) + 0.08
+
+    # Flexible logo zone: size the gap to the logo's REAL height — short wordmarks
+    # sit close to the photo, tall/square logos get the room they need.
+    if logo is not None:
+        logo_h_in = _logo_hw(logo, max_w_in=3.0, max_h_in=1.05, nominal_in=0.78)[1]
+    elif company:
+        logo_h_in = _ln(comp_pt)
+    else:
+        logo_h_in = 0.0
+    gap1, gap2 = 0.16, 0.12                              # photo→logo, logo→name
+    below_in = (gap1 + logo_h_in + gap2 if logo_h_in else 0.2) + name_block_in
+
     clear = Emu(0) if spx_space else Inches(1.1)        # keep clear of corner logo
     ct = content_top + (clear if bp == "bottom" else Emu(0))
     cb = content_bottom - (clear if bp == "top" else Emu(0))
     ch = cb - ct
 
-    name_block_in = 0.48 + (0.32 if role else 0.0) + (0.28 if is_mod else 0.0)
-    logo_zone_in = 0.85
-    below_in = 0.16 + logo_zone_in + name_block_in
     dia_in = 2.6
     block_h = Inches(dia_in + below_in)
     photo_top = ct + max(Inches(0.2), Emu(int((ch - block_h) / 2)))
@@ -708,32 +738,32 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
     if dia_in > avail:
         dia_in = max(1.6, avail)
 
-    photo_bottom  = photo_top + Inches(dia_in)
-    logo_zone_top = photo_bottom + Inches(0.16)
-    logo_zone_bot = logo_zone_top + Inches(logo_zone_in)
-    name_top      = logo_zone_bot + Inches(0.08)
+    photo_bottom = photo_top + Inches(dia_in)
+    logo_top = photo_bottom + Inches(gap1)
+    logo_bot = logo_top + Inches(logo_h_in)
+    name_top = (logo_bot + Inches(gap2)) if logo_h_in else (photo_bottom + Inches(0.2))
 
     _fy = max(int(content_top), int(photo_top - Inches(0.3)))
     _frame = (int(Inches(2.0)), _fy, int(Inches(9.33)),
-              int(logo_zone_top - Inches(0.05)) - _fy)
+              int(logo_top - Inches(0.05)) - _fy)
     _add_circle_photo(slide, photo, cx, photo_top, dia_in, theme_key, name, frame=_frame)
 
-    # company logo (bottom-aligned in the zone, BELOW the photo) or company name
+    # company logo (bottom-aligned just below the photo) or company name text
     if logo is not None:
-        _add_logo_balanced(slide, logo, cx, 3.0, logo_zone_in * 0.9,
-                           logo_zone_bot, nominal_in=logo_zone_in * 0.85)
+        _add_logo_balanced(slide, logo, cx, 3.0, 1.05, logo_bot, nominal_in=0.78)
     elif company:
-        _add_text(slide, Inches(1.5), logo_zone_top, Inches(10.333),
-                  Inches(logo_zone_in), [[(company.upper(), F_BOLD, 16, CHARCOAL, True)]],
+        _add_text(slide, Inches(1.5), logo_top, Inches(10.333),
+                  Inches(logo_h_in + 0.05),
+                  [[(company.upper(), F_BOLD, comp_pt, CHARCOAL, True)]],
                   anchor=MSO_ANCHOR.BOTTOM)
 
     # name / role / (moderator) — moderator last so it never shifts the name
-    name_paras = [[(name, F_BLACK, 22, CHARCOAL, True)]]
+    name_paras = [[(name, F_BLACK, name_pt, CHARCOAL, True)]]
     if role:
-        name_paras.append([(role, F_REG, 15, MIDGREY, False)])
+        name_paras.append([(role, F_REG, role_pt, MIDGREY, False)])
     if is_mod:
-        name_paras.append([(ls.get("moderator", "Moderator").upper(), F_BOLD, 13,
-                            _theme_rgb(theme_key), True)])
+        name_paras.append([(ls.get("moderator", "Moderator").upper(), F_BOLD,
+                            max(10, role_pt - 1), _theme_rgb(theme_key), True)])
     _add_text(slide, Inches(1.0), name_top, Inches(11.333),
               Inches(name_block_in + 0.25), name_paras, anchor=MSO_ANCHOR.TOP)
 
@@ -766,7 +796,7 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     _white_bg(slide)
 
     _top_off = _SPX_RESERVE if (spx_space and bp == "top") else Emu(0)
-    content_top, content_bottom = _add_title_band(
+    content_top, content_bottom, _title_pt = _add_title_band(
         slide, theme_key, session, title_fit=title_fit, band_pos=bp, top_offset=_top_off)
     if spx_space:
         _add_spx_strip(slide, theme_key)
@@ -782,8 +812,19 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     margin = Inches(0.55)
     usable = SLIDE_W - 2 * margin
     col_w = usable / n
-    below_in = 0.1 + 0.68 + 1.3              # logo zone + name block under each circle
-    logo_zone_in = 0.68
+    max_logo_w = min(col_w / EMU_PER_IN - 0.25, 1.8)
+    # Flexible logo zone: as tall as the TALLEST logo in the row (so names still
+    # align across columns) but no taller — short wordmarks no longer leave a gap.
+    _LOGO_NOMINAL = 0.6
+    _heights = []
+    for _sp in speakers:
+        _lg = logos.get((_sp.get("company") or "").strip())
+        if _lg is not None:
+            _heights.append(_logo_hw(_lg, max_logo_w, 0.85, _LOGO_NOMINAL)[1])
+        elif (_sp.get("company") or "").strip():
+            _heights.append(comp_pt * 2 * _LINE_FACTOR / _PX_PER_IN)
+    logo_zone_in = min(0.9, max(0.32, (max(_heights) if _heights else 0.4) + 0.06))
+    below_in = 0.1 + logo_zone_in + 1.3      # logo zone + name block under each circle
 
     # Inset the photo block away from the corner logo (which sits opposite the
     # band) so a circle never overlaps it: band bottom → logo top, clear the top;
@@ -799,14 +840,12 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     avail_below_in = (cb - photo_top) / EMU_PER_IN - below_in - 0.1
     if dia_in > avail_below_in:
         dia_in = max(1.4, avail_below_in)
-    max_logo_w = min(col_w / EMU_PER_IN - 0.25, 1.8)
 
     # ── fixed vertical zones so every column's logo / name / role line up ─────
     photo_bottom  = photo_top + Inches(dia_in)
     logo_zone_top = photo_bottom + Inches(0.1)
     logo_zone_bot = logo_zone_top + Inches(logo_zone_in)
     name_y        = logo_zone_bot + Inches(0.05)
-    max_logo_w    = min(col_w / EMU_PER_IN - 0.25, 1.8)
 
     for i, sp in enumerate(speakers):
         col_cx = margin + col_w * i + col_w // 2
@@ -820,10 +859,10 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
         # company logo (bottom-aligned in the fixed zone) or company name text
         logo = logos.get((sp.get("company") or "").strip())
         if logo is not None:
-            # equal visual area, a touch smaller + height-capped so square logos
-            # don't tower over wordmarks (keeps the row looking even)
-            _add_logo_balanced(slide, logo, col_cx, max_logo_w, logo_zone_in * 0.86,
-                               logo_zone_bot, nominal_in=logo_zone_in * 0.8)
+            # equal visual area at a fixed nominal; the zone is exactly as tall as
+            # the tallest logo, so the row looks even and names stay aligned
+            _add_logo_balanced(slide, logo, col_cx, max_logo_w, logo_zone_in,
+                               logo_zone_bot, nominal_in=_LOGO_NOMINAL)
         else:
             company = (sp.get("company") or "").strip()
             if company:
