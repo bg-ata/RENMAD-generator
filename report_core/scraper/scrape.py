@@ -81,12 +81,45 @@ def scrape_webinar(url: str, html: str | None = None) -> dict:
         speakers.append({"name": name, "role": role, "company": _company_from_filename(photo),
                          "photo": photo, "is_moderator": is_mod})
 
-    logos = []
+    # Sponsor / company logo candidates. The old rule required the word "logo" in
+    # the filename, which missed logos uploaded under the company name (e.g.
+    # "iquord-1.jpg"). Instead: take every uploads image and DROP the known noise
+    # (ATA favicons/own logos, language flags, the webinar hero, speaker photos).
+    allimg = []
     for src in re.findall(r'https://my\.atainsights\.com/wp-content/uploads/[^"\'\) ]+', html):
-        low = src.lower()
-        if "logo" in low and "favicon" not in low and "logo-3-blanco" not in low and "logo-prueba" not in low:
-            logos.append(src.split("?")[0])
-    logos = list(dict.fromkeys(logos))
+        u = src.split("?")[0]
+        if u.lower().rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp", "svg"):
+            allimg.append(u)
+    allimg = list(dict.fromkeys(allimg))
+
+    _spk_tokens = set()
+    for sp in speakers:
+        for part in re.findall(r"[A-Za-zÀ-ÿ]{3,}", sp.get("name", "")):
+            _spk_tokens.add(part.lower())
+
+    def _base(u):
+        b = u.split("/uploads/")[-1].rsplit(".", 1)[0]
+        return re.sub(r"-\d+x\d+$", "", b).lower()        # strip "-1024x576" size suffix
+
+    _NOISE = ("favicon", "cropped-ata", "logo-3-blanco", "logo-prueba")
+    _FLAGS = {"it", "pl", "pt", "en", "es", "de", "fr", "eu", "ok", "ok-xxl"}
+
+    def _keep(u):
+        low = u.lower(); b = _base(u)
+        if any(n in low for n in _NOISE):              return False   # ATA's own logos/favicons
+        if b in _FLAGS:                                 return False   # language flags
+        if b.startswith("webinar-") or b.startswith("banner"): return False  # hero / banner
+        if any(tok in b for tok in _spk_tokens):        return False   # speaker headshots
+        return True
+
+    seen_base, logos = set(), []
+    for u in allimg:
+        if not _keep(u):
+            continue
+        bb = _base(u)
+        if bb in seen_base:                             # collapse resized variants
+            continue
+        seen_base.add(bb); logos.append(u)
 
     return {"url": url, "title": title, "language_guess": _guess_lang(title),
             "cover_image": cover, "speakers": speakers, "logos": logos}

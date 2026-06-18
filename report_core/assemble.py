@@ -436,6 +436,19 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
         comp_sample = [c for c in comp_sample if not is_sponsor(c, sponsors)]
     job_titles = top_job_titles(stats.get("live_job_titles", []), override=form.get("titles_override"))
 
+    # if no logo was supplied/auto-detected by name above, pick the page logo whose
+    # filename matches a sponsor name (e.g. sponsor "Iquord" -> "iquord-1.jpg"); if a
+    # single candidate logo exists, it's almost certainly the sponsor.
+    if not sponsor_fn:
+        cands = scraped.get("logos") or []
+        pick = next((u for u in cands
+                     if any(norm_key(sp) and norm_key(sp) in norm_key(u.split("/uploads/")[-1])
+                            for sp in sponsors)), None)
+        if not pick and len(cands) == 1:
+            pick = cands[0]
+        if pick:
+            sponsor_fn = download_image(pick, assets_dir, "sponsor_logo")
+
     webinar = {
         "title_lines": split_title(title),
         "subtitle": subtitle,
