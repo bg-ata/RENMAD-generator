@@ -14,11 +14,12 @@ Panel / cover / section / utility renderers are added in a later step.
 from __future__ import annotations
 
 import io
+import math
 import os
 import re
 import tempfile
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
@@ -564,6 +565,47 @@ def _add_picture_fit(slide, path_or_img, cx_emu, top_emu, max_w_in, max_h_in,
     return slide.shapes.add_picture(src, int(cx_emu - w / 2), y, width=w, height=h)
 
 
+def _trim_logo(img: Image.Image) -> Image.Image:
+    """Crop away surrounding transparent / white margin so only the artwork
+    counts when sizing (so padding doesn't make a logo look small or big)."""
+    rgba = img.convert("RGBA")
+    abox = rgba.split()[3].getbbox()
+    if abox:
+        rgba = rgba.crop(abox)
+    try:
+        white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        comp = Image.alpha_composite(white, rgba).convert("RGB")
+        diff = ImageChops.difference(comp, Image.new("RGB", comp.size, (255, 255, 255)))
+        cbox = diff.convert("L").point(lambda p: 255 if p > 18 else 0).getbbox()
+        if cbox:
+            cw, ch = cbox[2] - cbox[0], cbox[3] - cbox[1]
+            w, h = rgba.size
+            if cw * ch >= 0.015 * w * h:          # guard: don't nuke light-on-transparent marks
+                rgba = rgba.crop(cbox)
+    except Exception:
+        pass
+    return rgba
+
+
+def _add_logo_balanced(slide, logo, cx_emu, max_w_in, max_h_in, bottom_emu, nominal_in):
+    """Place a company logo sized by equal visual AREA, not fit-to-box: trim the
+    transparent/white margin, then scale so the geometric-mean side ≈ nominal_in
+    (capped to the box). Logos then look similar regardless of their padding or
+    aspect ratio. Bottom-aligned at bottom_emu, centred on cx_emu."""
+    t = _trim_logo(logo)
+    w_px, h_px = t.size
+    if w_px <= 0 or h_px <= 0:
+        return None
+    aspect = w_px / h_px
+    disp_w = nominal_in * math.sqrt(aspect)       # equal area: disp_w * disp_h = nominal_in²
+    disp_h = nominal_in / math.sqrt(aspect)
+    k = min(1.0, max_w_in / disp_w, max_h_in / disp_h)   # never exceed the box
+    w, h = Inches(disp_w * k), Inches(disp_h * k)
+    bio = io.BytesIO(); t.save(bio, "PNG"); bio.seek(0)
+    return slide.shapes.add_picture(bio, int(cx_emu - w / 2), int(bottom_emu - h),
+                                    width=w, height=h)
+
+
 # ── Single-speaker card ───────────────────────────────────────────────────────
 
 # ── Shared slide chrome ───────────────────────────────────────────────────────
@@ -670,8 +712,8 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
 
     # company logo (or company name) seated just above the name block
     if logo is not None:
-        _add_picture_fit(slide, logo, cx, Inches(logo_top_in), 2.8, logo_zone_in,
-                         bottom_emu=Inches(logo_top_in + logo_zone_in))
+        _add_logo_balanced(slide, logo, cx, 2.8, logo_zone_in,
+                           Inches(logo_top_in + logo_zone_in), nominal_in=logo_zone_in)
     elif company:
         _add_text(slide, Inches(1.5), Inches(logo_top_in), Inches(10.333),
                   Inches(logo_zone_in), [[(company.upper(), F_BOLD, 19, CHARCOAL, True)]],
@@ -770,8 +812,8 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
         # company logo (bottom-aligned in the fixed zone) or company name text
         logo = logos.get((sp.get("company") or "").strip())
         if logo is not None:
-            _add_picture_fit(slide, logo, col_cx, logo_zone_top,
-                             max_logo_w, logo_zone_in, bottom_emu=logo_zone_bot)
+            _add_logo_balanced(slide, logo, col_cx, max_logo_w, logo_zone_in,
+                               logo_zone_bot, nominal_in=logo_zone_in * 0.95)
         else:
             company = (sp.get("company") or "").strip()
             if company:
