@@ -470,10 +470,11 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
            # never eats the slide (shrinks the font further only if it would exceed
            # the band's max height)
         BAND_MAX = 2.1
-        en_pt = 22 if bp == "top" else 20
+        en_pt = 21 if bp == "top" else 19
         while True:
             en_lines = _measure(title1, F_BLACK, en_pt, max_w_in * _PX_PER_IN)[0]
-            it_pt = max(11, int(en_pt * 0.55)) if title2 else None
+            # second-language line bigger (closer to EN) but still smaller
+            it_pt = max(13, int(en_pt * 0.74)) if title2 else None
             it_lines = (_measure(title2, F_BOLD, it_pt, max_w_in * _PX_PER_IN)[0]
                         if title2 else None)
             en_h = len(en_lines) * (en_pt * 2 * _LINE_FACTOR) / _PX_PER_IN
@@ -633,10 +634,12 @@ def _white_bg(slide):
     bg.fill.solid(); bg.fill.fore_color.rgb = WHITE; _no_line(bg); bg.shadow.inherit = False
 
 
-def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6, band_pos=None):
+def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6, band_pos=None,
+                       spx_space=False):
     """Small theme logo in the corner OPPOSITE the title band, so neither the band
     nor the speaker photos collide with it (band bottom → logo top-right; band
-    top → logo bottom-right)."""
+    top → logo bottom-right). With the sponsor strip on, it sits top-right inside
+    that blank strip (so the event branding is always present)."""
     logo_fn = _theme(theme_key).get("logo_filename")
     if not logo_fn:
         return
@@ -648,8 +651,13 @@ def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6, band_pos=
     tw = Inches(w_in)
     th = int(tw * h0 / w0)
     x = SLIDE_W - tw - Inches(0.3)
-    y = Inches(0.3) if _band_pos(layout, band_pos) == "bottom" \
-        else SLIDE_H - Emu(th) - Inches(0.25)
+    if spx_space:
+        # centre it vertically within the blank sponsor strip, top-right
+        y = max(Emu(0), Emu(int((int(_SPX_LOGO_H) - th) / 2)))
+    elif _band_pos(layout, band_pos) == "bottom":
+        y = Inches(0.3)
+    else:
+        y = SLIDE_H - Emu(th) - Inches(0.25)
     slide.shapes.add_picture(lp, x, y, width=tw, height=Emu(th))
 
 
@@ -767,8 +775,8 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
     _add_text(slide, Inches(1.0), name_top, Inches(11.333),
               Inches(name_block_in + 0.25), name_paras, anchor=MSO_ANCHOR.TOP)
 
-    if not spx_space:
-        _theme_logo_corner(slide, theme_key, band_pos=bp)
+    # event branding stays even with the sponsor strip on (it sits in the strip)
+    _theme_logo_corner(slide, theme_key, band_pos=bp, spx_space=spx_space)
     return slide
 
 
@@ -882,8 +890,8 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
         _add_text(slide, col_left, name_y, col_w, Inches(1.5), paras,
                   anchor=MSO_ANCHOR.TOP)
 
-    if not spx_space:
-        _theme_logo_corner(slide, theme_key, band_pos=bp)
+    # event branding stays even with the sponsor strip on (it sits in the strip)
+    _theme_logo_corner(slide, theme_key, band_pos=bp, spx_space=spx_space)
     return slide
 
 
