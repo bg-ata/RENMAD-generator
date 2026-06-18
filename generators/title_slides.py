@@ -162,26 +162,90 @@ def _skin_centroid(img: Image.Image) -> "tuple[float, float] | None":
     return (sx / n) / sw, (sy / n) / sh
 
 
+_CASCADE_CACHE: dict = {}
+
+
+def _load_cascade(name: str):
+    """Load a Haar cascade by reading its XML in Python (handles non-ASCII paths
+    like C:\\Users\\Belén\\…) and feeding it to OpenCV from memory — OpenCV's own
+    C++ file reader can't open Unicode paths on Windows."""
+    if name in _CASCADE_CACHE:
+        return _CASCADE_CACHE[name]
+    cas = None
+    try:
+        import cv2
+        import os as _os
+        path = _os.path.join(cv2.data.haarcascades, name)
+        with open(path, "rb") as f:                  # Python opens the é path fine
+            data = f.read().decode("utf-8", "ignore")
+        fs = cv2.FileStorage(data, cv2.FILE_STORAGE_READ | cv2.FILE_STORAGE_MEMORY)
+        c = cv2.CascadeClassifier()
+        if c.read(fs.getFirstTopLevelNode()) and not c.empty():
+            cas = c
+    except Exception:
+        cas = None
+    _CASCADE_CACHE[name] = cas
+    return cas
+
+
+def _face_box(img_rgb: Image.Image):
+    """Largest detected face as (x, y, w, h) in pixels via OpenCV Haar cascades
+    (bundled with cv2 — no model download). Returns None if cv2 is unavailable or
+    no face is found."""
+    try:
+        import cv2  # noqa: F401
+        import numpy as np
+    except Exception:
+        return None
+    gray = np.array(img_rgb.convert("L"))
+    H, W = gray.shape
+    ms = (max(24, int(W * 0.05)), max(24, int(H * 0.05)))
+    for name in ("haarcascade_frontalface_default.xml",
+                 "haarcascade_frontalface_alt2.xml"):
+        cas = _load_cascade(name)
+        if cas is None:
+            continue
+        try:
+            faces = cas.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=ms)
+        except Exception:
+            faces = []
+        if len(faces):
+            x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+            return (int(x), int(y), int(w), int(h))
+    return None
+
+
 def _smart_square(photo: Image.Image) -> Image.Image:
-    """Crop a photo to a square centred on the speaker's face. Uses a skin-tone
-    centroid to recover off-centre subjects (e.g. a person standing on the left of
-    a wide shot); falls back to a top-biased centre crop when unsure. Only the
-    initial framing — the user can still re-crop freely in PowerPoint."""
+    """Crop a photo to a square framed on the speaker's FACE: centred on it, with
+    head-room above, and zoomed so the face fills the circle nicely (fixes both
+    cut-off heads and too-much-background wide shots). Falls back to a skin-tone
+    centroid, then a top-biased centre crop. Only the initial framing — the user
+    can still re-crop freely in PowerPoint."""
     img = photo.convert("RGB")
     w, h = img.size
+
+    fb = _face_box(img)
+    if fb:
+        fx, fy, fw, fh = fb
+        face_cx, face_cy = fx + fw / 2, fy + fh / 2
+        # face ≈ 42% of the crop; never larger than the image, never over-zoomed
+        crop = int(min(w, h, max(fh * 2.4, min(w, h) * 0.5)))
+        left = int(round(face_cx - crop / 2))
+        top = int(round(face_cy - crop * 0.46))      # head-room above the face
+        left = max(0, min(w - crop, left))
+        top = max(0, min(h - crop, top))
+        return img.crop((left, top, left + crop, top + crop))
+
     s = min(w, h)
     if w == h:
         return img
     cen = _skin_centroid(img)
     if w > h:                       # landscape → choose the horizontal window
         cx = cen[0] if cen else 0.5
-        left = int(round(cx * w - s / 2))
-        left = max(0, min(w - s, left))
+        left = max(0, min(w - s, int(round(cx * w - s / 2))))
         return img.crop((left, 0, left + s, s))
-    # portrait → choose the vertical window, biased so the face sits a bit high
-    cy = cen[1] if cen else 0.34
-    top = int(round(cy * h - s * 0.45))
-    top = max(0, min(h - s, top))
+    cy = cen[1] if cen else 0.34    # portrait → face a bit high
+    top = max(0, min(h - s, int(round(cy * h - s * 0.45))))
     return img.crop((0, top, s, top + s))
 
 
