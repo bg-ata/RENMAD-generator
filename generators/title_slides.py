@@ -640,8 +640,8 @@ def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6, band_pos=
 # itself needs a blank strip at the top to paste them into, with a slim theme
 # band beneath (the "SPX types" line, left blank). Reserving it pushes the
 # speaker block down. See Belén's reference slides 2026-06-16.
-_SPX_LOGO_H = Inches(1.4)   # blank space at the very top for logos (by hand)
-_SPX_BAND_H = Inches(0.3)   # slim theme-colour band under it (blank)
+_SPX_LOGO_H = Inches(1.0)    # blank space at the very top for logos (by hand)
+_SPX_BAND_H = Inches(0.16)   # slim theme-colour band under it (blank)
 _SPX_RESERVE = _SPX_LOGO_H + _SPX_BAND_H
 
 
