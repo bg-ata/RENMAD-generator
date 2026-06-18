@@ -40,7 +40,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-16f** · Tabler icons · SPX logo-space · balanced logo sizing · one-click download "
+st.caption("🟢 Build **2026-06-16g** · bilingual transitions · balanced logos · SPX logo-space · one-click download "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
@@ -273,7 +273,8 @@ st.divider()
 st.header("6 · Download")
 
 
-def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
+def _build_one(agenda: dict, lang: str, layout: str, label: str,
+               lang2: str | None = None) -> dict:
     """Match assets for THIS agenda and build one deck. Returns {bytes, report}."""
     res = _match_pool(agenda, pool)
     out_path = os.path.join(tempfile.mkdtemp(prefix="ts_out_"), f"{label}.pptx")
@@ -284,6 +285,7 @@ def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
         include_cards=opt_cards, layout=layout, title_fit=title_fit,
         include_breaks=opt_breaks, cover=opt_cover, lang=lang,
         utility_kinds=util_pick or None, event_band=event_band, spx_space=spx_space,
+        lang2=lang2,
     )
     with open(out_path, "rb") as f:
         data = f.read()
@@ -314,8 +316,9 @@ else:
                 built = []
                 if is_event:
                     deck_agenda = _merge_bilingual(agenda1, agenda2) if agenda2 else agenda1
+                    _l2 = lang2 if (agenda2 and has_lang2) else None
                     built.append(("event_title_slides.pptx",
-                                  _build_one(deck_agenda, lang1, "event", "event")))
+                                  _build_one(deck_agenda, lang1, "event", "event", lang2=_l2)))
                 else:
                     built.append((f"marketing_title_slides_{lang1}.pptx",
                                   _build_one(agenda1, lang1, "marketing", f"m_{lang1}")))

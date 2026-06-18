@@ -922,6 +922,19 @@ _BREAK_ICON_NAME = {
     "welcome": "clock", "closing": "clock",
 }
 
+# Built-in translations of the standard break labels, so a bilingual deck always
+# gets a bilingual transition slide even when the second agenda didn't supply the
+# break's text (rows don't line up, or the break only exists in one language).
+_BREAK_LABELS = {
+    "registration": {"en": "Registration", "es": "Registro", "it": "Registrazione", "pl": "Rejestracja"},
+    "welcome":      {"en": "Welcome", "es": "Bienvenida", "it": "Apertura", "pl": "Powitanie"},
+    "break":        {"en": "Coffee break", "es": "Pausa café", "it": "Pausa caffè", "pl": "Przerwa kawowa"},
+    "lunch":        {"en": "Lunch", "es": "Comida", "it": "Pranzo", "pl": "Obiad"},
+    "cocktail":     {"en": "Cocktail", "es": "Cóctel", "it": "Cocktail", "pl": "Koktajl"},
+    "networking":   {"en": "Networking", "es": "Networking", "it": "Networking", "pl": "Networking"},
+    "closing":      {"en": "Closing", "es": "Clausura", "it": "Chiusura", "pl": "Zakończenie"},
+}
+
 # Split-panel section/utility layout (chosen by Belén 2026-06-16):
 #   left charcoal panel with a white icon · right theme-colour area with a
 #   left-aligned title, a cream divider rule, and an optional detail line.
@@ -991,15 +1004,22 @@ def _section_text(slide, x0, title, title2=None, detail_runs=None):
 
 
 def add_break_slide(prs: Presentation, theme_key: str, session: dict,
-                    lang_strings: dict | None = None, layout: str = "marketing"):
+                    lang_strings: dict | None = None, layout: str = "marketing",
+                    lang2: str | None = None):
     """Split-panel section/break divider (coffee, lunch, cocktail, registration,
     welcome…): charcoal icon panel + the (bilingual) label. No time shown —
-    events run late and there's rarely a chance to correct it. All native."""
+    events run late and there's rarely a chance to correct it. All native.
+    `lang2` adds a second-language label (from a built-in table) when the agenda
+    didn't supply one, so bilingual decks always get bilingual transitions."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    x0 = _section_base(slide, theme_key,
-                       _BREAK_ICON_NAME.get(session.get("break_kind"), "clock"))
+    kind = session.get("break_kind")
+    x0 = _section_base(slide, theme_key, _BREAK_ICON_NAME.get(kind, "clock"))
     title = _strip_emoji(session.get("title", "")).upper()
     title2 = _strip_emoji(session.get("title_2", "")).upper()
+    if not title2 and lang2:
+        fallback = _BREAK_LABELS.get(kind, {}).get(lang2)
+        if fallback:
+            title2 = fallback.upper()
     _section_text(slide, x0, title, title2=title2)
     return slide
 
@@ -1079,7 +1099,8 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
                      title_fit: str = "flexible", include_breaks: bool = True,
                      cover: bool = True, lang: str = "en",
                      utility_kinds: "list | None" = None,
-                     event_band: str = "bottom", spx_space: bool = False) -> str:
+                     event_band: str = "bottom", spx_space: bool = False,
+                     lang2: str | None = None) -> str:
     """
     Optional cover slide, then for each session in agenda order:
       • break  → full-bleed section/break divider (coffee, lunch, cocktail…)
@@ -1109,7 +1130,7 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
         stype = sess.get("type")
         if stype == "break":
             if include_breaks:
-                add_break_slide(prs, theme_key, sess, lang_strings, layout)
+                add_break_slide(prs, theme_key, sess, lang_strings, layout, lang2=lang2)
             continue
         named = [s for s in sess.get("speakers", []) if (s.get("name") or "").strip()]
         if not named:
