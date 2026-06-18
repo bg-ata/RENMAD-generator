@@ -450,7 +450,7 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
     title1 = (session.get("title") or "").strip()
     title2 = (session.get("title_2") or "").strip()
     max_w_in = _BAND_MEASURE_W
-    pad_in = 0.24
+    pad_in = 0.2
 
     if title_fit == "uniform":
         band_h_in = 1.95 if bp == "top" else 1.6
@@ -464,23 +464,24 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
             en_pt, en_lines = _fit_size(title1, F_BLACK, max_w_in, avail,
                                         hi=34, lo=15)
             it_pt = it_lines = None
-    else:  # flexible — keep the title big, grow the band to fit it (shrinking the
-           # font only if it would otherwise overflow the band's max height)
-        BAND_MAX = 3.0
-        en_pt = 30 if bp == "top" else 28
+    else:  # flexible — modest title, band grows to fit it but stays compact so it
+           # never eats the slide (shrinks the font further only if it would exceed
+           # the band's max height)
+        BAND_MAX = 2.15
+        en_pt = 24 if bp == "top" else 22
         while True:
             en_lines = _measure(title1, F_BLACK, en_pt, max_w_in * _PX_PER_IN)[0]
-            it_pt = max(15, int(en_pt * 0.72)) if title2 else None
+            it_pt = max(12, int(en_pt * 0.6)) if title2 else None
             it_lines = (_measure(title2, F_BOLD, it_pt, max_w_in * _PX_PER_IN)[0]
                         if title2 else None)
             en_h = len(en_lines) * (en_pt * 2 * _LINE_FACTOR) / _PX_PER_IN
             it_h = (len(it_lines) * (it_pt * 2 * _LINE_FACTOR) / _PX_PER_IN) if title2 else 0
-            div_in = 0.20 if title2 else 0
+            div_in = 0.14 if title2 else 0
             band_h_in = 2 * pad_in + en_h + div_in + it_h
-            if (len(en_lines) <= 3 and band_h_in <= BAND_MAX) or en_pt <= 16:
+            if (len(en_lines) <= 3 and band_h_in <= BAND_MAX) or en_pt <= 13:
                 break
-            en_pt -= 2
-        band_h_in = max(1.2, min(BAND_MAX, band_h_in))
+            en_pt -= 1
+        band_h_in = max(1.0, min(BAND_MAX, band_h_in))
 
     band_h = Inches(band_h_in)
     if bp == "bottom":
@@ -812,8 +813,10 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
         # company logo (bottom-aligned in the fixed zone) or company name text
         logo = logos.get((sp.get("company") or "").strip())
         if logo is not None:
-            _add_logo_balanced(slide, logo, col_cx, max_logo_w, logo_zone_in,
-                               logo_zone_bot, nominal_in=logo_zone_in * 0.95)
+            # equal visual area, a touch smaller + height-capped so square logos
+            # don't tower over wordmarks (keeps the row looking even)
+            _add_logo_balanced(slide, logo, col_cx, max_logo_w, logo_zone_in * 0.86,
+                               logo_zone_bot, nominal_in=logo_zone_in * 0.8)
         else:
             company = (sp.get("company") or "").strip()
             if company:
