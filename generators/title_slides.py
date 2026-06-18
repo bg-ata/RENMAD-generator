@@ -437,7 +437,7 @@ def _band_pos(layout, band_pos):
 
 
 def _add_title_band(slide, theme_key, session, layout="marketing",
-                    title_fit="uniform", band_pos=None):
+                    title_fit="uniform", band_pos=None, top_offset=Emu(0)):
     """
     Coloured title band with the bilingual session title.
       band_pos  'top' | 'bottom' (defaults from layout: marketing→top, event→bottom)
@@ -486,8 +486,8 @@ def _add_title_band(slide, theme_key, session, layout="marketing",
         band_top = SLIDE_H - band_h
         content_top, content_bottom = Emu(0), band_top
     else:
-        band_top = Emu(0)
-        content_top, content_bottom = band_h, SLIDE_H
+        band_top = top_offset
+        content_top, content_bottom = band_top + band_h, SLIDE_H
     _add_band(slide, theme_key, band_h, top=band_top)
 
     # ── place the measured text blocks, vertically centred in the band ────────
@@ -593,6 +593,25 @@ def _theme_logo_corner(slide, theme_key, layout="marketing", w_in=1.6, band_pos=
     slide.shapes.add_picture(lp, x, y, width=tw, height=Emu(th))
 
 
+# ── Optional top space for hand-added sponsor (SPX) logos ─────────────────────
+# Small events have no LED background carrying the sponsor logos, so the slide
+# itself needs a blank strip at the top to paste them into, with a slim theme
+# band beneath (the "SPX types" line, left blank). Reserving it pushes the
+# speaker block down. See Belén's reference slides 2026-06-16.
+_SPX_LOGO_H = Inches(1.4)   # blank space at the very top for logos (by hand)
+_SPX_BAND_H = Inches(0.3)   # slim theme-colour band under it (blank)
+_SPX_RESERVE = _SPX_LOGO_H + _SPX_BAND_H
+
+
+def _add_spx_strip(slide, theme_key):
+    """Draw the slim theme-colour band beneath the (blank) hand-logo space.
+    Returns the reserved bottom y (EMU) — content must start below this."""
+    band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, _SPX_LOGO_H, SLIDE_W, _SPX_BAND_H)
+    band.fill.solid(); band.fill.fore_color.rgb = _theme_rgb(theme_key)
+    _no_line(band); band.shadow.inherit = False
+    return _SPX_RESERVE
+
+
 # ── Single-speaker card ───────────────────────────────────────────────────────
 
 def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
@@ -600,19 +619,24 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
                              logo: Image.Image | None = None,
                              lang_strings: dict | None = None,
                              layout: str = "marketing", title_fit: str = "flexible",
-                             band_pos: str | None = None):
+                             band_pos: str | None = None, spx_space: bool = False):
     """
     One title card for an individual speaker: circular photo, company logo,
     name (bold) + role, optional Moderator label, plus the bilingual session
     title in a coloured band (top or bottom — see `band_pos`).
+    `spx_space` reserves a blank top strip for hand-added sponsor logos.
     """
     bp = _band_pos(layout, band_pos)
     blank = prs.slide_layouts[6]
     slide = prs.slides.add_slide(blank)
     _white_bg(slide)
 
+    _top_off = _SPX_RESERVE if (spx_space and bp == "top") else Emu(0)
     content_top, content_bottom = _add_title_band(
-        slide, theme_key, session, title_fit=title_fit, band_pos=bp)
+        slide, theme_key, session, title_fit=title_fit, band_pos=bp, top_offset=_top_off)
+    if spx_space:
+        _add_spx_strip(slide, theme_key)
+        content_top = max(int(content_top), int(_SPX_RESERVE))
 
     cx = SLIDE_W // 2
     ls = lang_strings or {}
@@ -622,9 +646,9 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
     below_in = 1.95                          # logo zone + name block under the circle
     content_h = content_bottom - content_top
     avail_in = content_h / EMU_PER_IN
-    dia_in = max(1.9, min(3.1, avail_in - below_in - 0.35))
+    dia_in = max(1.5, min(3.1, avail_in - below_in - 0.3))
     block_h = Inches(dia_in + below_in)
-    y = content_top + max(Inches(0.3), Emu(int((content_h - block_h) / 2)))
+    y = content_top + max(Inches(0.1), Emu(int((content_h - block_h) / 2)))
     _fy = max(int(content_top), int(y - Inches(0.4)))
     _frame = (int(Inches(2.0)), _fy, int(Inches(9.33)),
               int(y + Inches(dia_in) + Inches(0.1)) - _fy)
@@ -657,7 +681,8 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
                             _theme_rgb(theme_key), True)])
     _add_text(slide, Inches(1.0), y, Inches(11.333), Inches(1.0), name_paras)
 
-    _theme_logo_corner(slide, theme_key, band_pos=bp)
+    if not spx_space:
+        _theme_logo_corner(slide, theme_key, band_pos=bp)
     return slide
 
 
@@ -666,10 +691,12 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
 def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
                     photos: dict | None = None, logos: dict | None = None,
                     lang_strings: dict | None = None, layout: str = "marketing",
-                    title_fit: str = "flexible", band_pos: str | None = None):
+                    title_fit: str = "flexible", band_pos: str | None = None,
+                    spx_space: bool = False):
     """One slide for a whole panel: bilingual title band + a row of speakers
     (photo / company logo / name / role / Moderator chip). `band_pos` puts the
-    title band 'top' or 'bottom'."""
+    title band 'top' or 'bottom'. `spx_space` reserves a blank top strip for
+    hand-added sponsor logos."""
     photos = photos or {}
     logos = logos or {}
     ls = lang_strings or {}
@@ -682,8 +709,12 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     slide = prs.slides.add_slide(blank)
     _white_bg(slide)
 
+    _top_off = _SPX_RESERVE if (spx_space and bp == "top") else Emu(0)
     content_top, content_bottom = _add_title_band(
-        slide, theme_key, session, title_fit=title_fit, band_pos=bp)
+        slide, theme_key, session, title_fit=title_fit, band_pos=bp, top_offset=_top_off)
+    if spx_space:
+        _add_spx_strip(slide, theme_key)
+        content_top = max(int(content_top), int(_SPX_RESERVE))
 
     n = len(speakers)
     # circle diameter shrinks as the panel grows (bumped up — "bigger where possible")
@@ -701,7 +732,7 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     # Inset the photo block away from the corner logo (which sits opposite the
     # band) so a circle never overlaps it: band bottom → logo top, clear the top;
     # band top → logo bottom, clear the bottom.
-    clear = Inches(1.1)
+    clear = Emu(0) if spx_space else Inches(1.1)   # no corner logo when SPX space is on
     ct = content_top + (clear if bp == "bottom" else Emu(0))
     cb = content_bottom - (clear if bp == "top" else Emu(0))
     ch = cb - ct
@@ -754,7 +785,8 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
         _add_text(slide, col_left, name_y, col_w, Inches(1.5), paras,
                   anchor=MSO_ANCHOR.TOP)
 
-    _theme_logo_corner(slide, theme_key, band_pos=bp)
+    if not spx_space:
+        _theme_logo_corner(slide, theme_key, band_pos=bp)
     return slide
 
 
@@ -999,7 +1031,7 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
                      title_fit: str = "flexible", include_breaks: bool = True,
                      cover: bool = True, lang: str = "en",
                      utility_kinds: "list | None" = None,
-                     event_band: str = "bottom") -> str:
+                     event_band: str = "bottom", spx_space: bool = False) -> str:
     """
     Optional cover slide, then for each session in agenda order:
       • break  → full-bleed section/break divider (coffee, lunch, cocktail…)
@@ -1036,7 +1068,8 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
             continue
         if stype == "panel":
             add_panel_slide(prs, theme_key, sess, photos, logos, lang_strings,
-                            layout=layout, title_fit=title_fit, band_pos=band_pos)
+                            layout=layout, title_fit=title_fit, band_pos=band_pos,
+                            spx_space=spx_space)
             if include_cards:
                 for sp in named:
                     add_single_speaker_slide(
@@ -1044,7 +1077,7 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
                         photo=photos.get(sp.get("name", "")),
                         logo=logos.get((sp.get("company") or "").strip()),
                         lang_strings=lang_strings, layout=layout,
-                        title_fit=title_fit, band_pos=band_pos)
+                        title_fit=title_fit, band_pos=band_pos, spx_space=spx_space)
         elif stype in ("presentation", "speaker"):
             for sp in named:
                 add_single_speaker_slide(
@@ -1052,7 +1085,7 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
                     photo=photos.get(sp.get("name", "")),
                     logo=logos.get((sp.get("company") or "").strip()),
                     lang_strings=lang_strings, layout=layout,
-                    title_fit=title_fit, band_pos=band_pos)
+                    title_fit=title_fit, band_pos=band_pos, spx_space=spx_space)
 
     prs.save(out_path)
     return out_path

@@ -40,7 +40,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-16c** · Tabler icons (full cookie) · one-click download "
+st.caption("🟢 Build **2026-06-16d** · Tabler icons · SPX logo-space option · one-click download "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
@@ -153,6 +153,16 @@ if is_event:
              "gets blocked at the bottom by people, so the title can go on top.",
     )
     event_band = "top" if band_label == "Top" else "bottom"
+
+    spx_space = st.checkbox(
+        "Leave a blank space at the top for sponsor logos (add by hand)",
+        value=False, key="ts_spx",
+        help="For small events with no LED screen/background carrying the sponsor "
+             "logos. Reserves an empty top strip + a slim band, and pushes the "
+             "speakers down. No logos are added — you paste them in PowerPoint.",
+    )
+else:
+    spx_space = False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -273,7 +283,7 @@ def _build_one(agenda: dict, lang: str, layout: str, label: str) -> dict:
         lang_strings=LANGUAGE_STRINGS.get(lang, LANGUAGE_STRINGS["en"]),
         include_cards=opt_cards, layout=layout, title_fit=title_fit,
         include_breaks=opt_breaks, cover=opt_cover, lang=lang,
-        utility_kinds=util_pick or None, event_band=event_band,
+        utility_kinds=util_pick or None, event_band=event_band, spx_space=spx_space,
     )
     with open(out_path, "rb") as f:
         data = f.read()
