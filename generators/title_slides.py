@@ -641,45 +641,51 @@ def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
     cx = SLIDE_W // 2
     ls = lang_strings or {}
 
-    # Circle as big as the free area allows (the photo is centred horizontally, so
-    # it never reaches the corner logo — no clearance needed here).
-    below_in = 1.95                          # logo zone + name block under the circle
-    content_h = content_bottom - content_top
-    avail_in = content_h / EMU_PER_IN
-    dia_in = max(1.5, min(3.1, avail_in - below_in - 0.3))
-    block_h = Inches(dia_in + below_in)
-    y = content_top + max(Inches(0.1), Emu(int((content_h - block_h) / 2)))
-    _fy = max(int(content_top), int(y - Inches(0.4)))
-    _frame = (int(Inches(2.0)), _fy, int(Inches(9.33)),
-              int(y + Inches(dia_in) + Inches(0.1)) - _fy)
-    _add_circle_photo(slide, photo, cx, y, dia_in, theme_key,
-                      speaker.get("name", ""), frame=_frame)
-    y = y + Inches(dia_in) + Inches(0.18)
-
-    # company logo in a fixed-height zone (so the name sits at a stable height)
-    logo_zone_in = 0.95
-    if logo is not None:
-        _add_picture_fit(slide, logo, cx, y, 2.6, logo_zone_in,
-                         bottom_emu=y + Inches(logo_zone_in))
-        y = y + Inches(logo_zone_in + 0.14)
-    else:
-        company = (speaker.get("company") or "").strip()
-        if company:
-            _add_text(slide, Inches(1.5), y, Inches(10.333), Inches(logo_zone_in),
-                      [[(company.upper(), F_BOLD, 18, CHARCOAL, True)]],
-                      anchor=MSO_ANCHOR.BOTTOM)
-            y = y + Inches(logo_zone_in + 0.14)
-
-    # name / role / (moderator) stacked — moderator last so it never shifts name
     name = (speaker.get("name") or "").strip()
     role = (speaker.get("role") or "").strip()
-    name_paras = [[(name, F_BLACK, 24, CHARCOAL, True)]]
+    company = (speaker.get("company") or "").strip()
+    is_mod = bool(speaker.get("is_moderator"))
+
+    # Vertical plan: pin the name/role near the bottom with a guaranteed gap above
+    # the title band (so the role is ALWAYS readable), the company logo just above
+    # it, and the circle filling the remaining space up top (as big as fits). This
+    # uses the empty space well whether the area is roomy (no SPX) or tight (SPX).
+    ct_in = int(content_top) / EMU_PER_IN
+    cb_in = int(content_bottom) / EMU_PER_IN
+    name_block_in = 0.5 + (0.34 if role else 0.0) + (0.30 if is_mod else 0.0)
+    bottom_margin = 0.45
+    logo_zone_in = 0.9
+    name_top_in = cb_in - bottom_margin - name_block_in
+    logo_top_in = name_top_in - 0.18 - logo_zone_in
+    photo_top_in = ct_in + 0.2
+    photo_space = (logo_top_in - 0.2) - photo_top_in
+    dia_in = max(1.5, min(3.2, photo_space))
+    photo_y_in = photo_top_in + max(0.0, (photo_space - dia_in) / 2)
+
+    py = Inches(photo_y_in)
+    _fy = max(int(content_top), int(py - Inches(0.3)))
+    _frame = (int(Inches(2.0)), _fy, int(Inches(9.33)),
+              int(py + Inches(dia_in) + Inches(0.1)) - _fy)
+    _add_circle_photo(slide, photo, cx, py, dia_in, theme_key, name, frame=_frame)
+
+    # company logo (or company name) seated just above the name block
+    if logo is not None:
+        _add_picture_fit(slide, logo, cx, Inches(logo_top_in), 2.8, logo_zone_in,
+                         bottom_emu=Inches(logo_top_in + logo_zone_in))
+    elif company:
+        _add_text(slide, Inches(1.5), Inches(logo_top_in), Inches(10.333),
+                  Inches(logo_zone_in), [[(company.upper(), F_BOLD, 19, CHARCOAL, True)]],
+                  anchor=MSO_ANCHOR.BOTTOM)
+
+    # name / role / (moderator) — moderator last so it never shifts the name
+    name_paras = [[(name, F_BLACK, 26, CHARCOAL, True)]]
     if role:
-        name_paras.append([(role, F_REG, 15, MIDGREY, False)])
-    if speaker.get("is_moderator"):
-        name_paras.append([(ls.get("moderator", "Moderator").upper(), F_BOLD, 13,
+        name_paras.append([(role, F_REG, 18, MIDGREY, False)])
+    if is_mod:
+        name_paras.append([(ls.get("moderator", "Moderator").upper(), F_BOLD, 14,
                             _theme_rgb(theme_key), True)])
-    _add_text(slide, Inches(1.0), y, Inches(11.333), Inches(1.0), name_paras)
+    _add_text(slide, Inches(1.0), Inches(name_top_in), Inches(11.333),
+              Inches(name_block_in + 0.25), name_paras, anchor=MSO_ANCHOR.TOP)
 
     if not spx_space:
         _theme_logo_corner(slide, theme_key, band_pos=bp)
