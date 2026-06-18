@@ -81,6 +81,21 @@ def split_title(title: str):
     return [" ".join(words[:best]), " ".join(words[best:])]
 
 
+def copy_image(src_path: str, dest_dir: str, name: str) -> str | None:
+    """Copy a local image (e.g. a manually-uploaded logo) into the assets dir.
+    Returns the filename (relative to dest_dir) the renderer expects, or None."""
+    if not src_path or not os.path.exists(src_path):
+        return None
+    try:
+        import shutil
+        ext = os.path.splitext(src_path)[1] or ".png"
+        fn = name + ext
+        shutil.copyfile(src_path, os.path.join(dest_dir, fn))
+        return fn
+    except Exception:
+        return None
+
+
 def download_image(url: str, dest_dir: str, name: str) -> str | None:
     if not url:
         return None
@@ -385,7 +400,9 @@ def assemble(scraped, stats, regs, form, assets_dir, lang="en", zoom_csv_path=No
     # the cover renders a placeholder disc when there is no photo.
     speakers = [s for s in speakers if (s.get("name") or "").strip()]
 
-    sponsor_fn = download_image(form.get("sponsor_logo_url"), assets_dir, "sponsor_logo")
+    # sponsor logo: a manually-uploaded file wins; otherwise the auto-detected URL
+    sponsor_fn = copy_image(form.get("sponsor_logo_path"), assets_dir, "sponsor_logo") \
+        or download_image(form.get("sponsor_logo_url"), assets_dir, "sponsor_logo")
 
     # email rows → totals
     rows, sent_t, open_t, click_t = [], 0, 0, 0

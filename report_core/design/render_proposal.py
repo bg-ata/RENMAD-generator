@@ -437,10 +437,23 @@ def slide_cover(st, lang):
     T(d,(72,200),s["report"],bold(22),ORANGE,anchor="la")
     star(d, 72+tw(d,s["report"],bold(22))+40, 196, 26, YELLOW)
     avail = PX - 70 - 50
-    lines = [l for l in WEBINAR["title_lines"] if l]
-    fs = 116
-    while fs > 34 and any(tw(d, ln, black(fs)) > avail for ln in lines): fs -= 2
-    yy = 300 if len(lines) <= 1 else 272
+    full = " ".join([l for l in WEBINAR["title_lines"] if l]).strip()
+    # Fit the title at the LARGEST font that stays within `avail`, using as FEW
+    # lines as possible — but add lines (up to 4) when a long title would otherwise
+    # be forced down to a tiny font. (Old behaviour capped at 2 lines -> tiny fonts.)
+    FLOOR, GOOD, MAXL = 46, 58, 4
+    lines, fs = [full], 116
+    for L in range(1, MAXL + 1):
+        f = 116
+        while f > FLOOR:
+            wl = wrap_lines(d, full, black(f), avail, max_lines=99)
+            if len(wl) <= L and all(tw(d, ln, black(f)) <= avail for ln in wl):
+                break
+            f -= 2
+        lines, fs = wrap_lines(d, full, black(f), avail, max_lines=99), f
+        if f >= GOOD or L == MAXL:
+            break
+    yy = {1: 300, 2: 272, 3: 250}.get(len(lines), 230)
     for ln in lines:
         T(d,(70,yy),ln,black(fs),CHAR,anchor="la"); yy += int(fs*1.04)
     sub = WEBINAR.get("subtitle") or ""

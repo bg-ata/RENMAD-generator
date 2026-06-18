@@ -63,6 +63,13 @@ def _tmp_csv(uploaded):
     f.write(uploaded.getvalue()); f.close(); return f.name
 
 
+def _tmp_upload(uploaded):
+    """Save any uploaded file to a temp path, preserving its extension."""
+    ext = os.path.splitext(uploaded.name)[1] or ".png"
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    f.write(uploaded.getvalue()); f.close(); return f.name
+
+
 # ── 1 · Webinar ──────────────────────────────────────────────────────────────
 st.subheader("1 · Webinar")
 c1, c2 = st.columns([4, 1])
@@ -94,7 +101,14 @@ if youtube_url.strip() and y2.button("🔄 Retry auto-read", key="yt_retry",
     ss.pop("_yt_url_cache", None)
     ss.pop("_yt_views_cache", None)
 logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in (sc or {}).get("logos", [])]
-sponsor_sel = y3.selectbox("Sponsor logo (optional)", logo_opts)
+sponsor_sel = y3.selectbox("Sponsor logo (auto-detected)", logo_opts,
+                           help="Logos found on the webinar page. If the right one isn't "
+                                "here, upload it below.")
+sponsor_logo_file = st.file_uploader(
+    "…or upload the sponsor logo manually (PNG / JPG — use this if it wasn't found above)",
+    type=["png", "jpg", "jpeg", "webp"], key="sponsor_logo_upload")
+if sponsor_logo_file:
+    st.image(sponsor_logo_file, width=160, caption="This uploaded logo will be used.")
 sponsor_name = st.text_input("Sponsor name (optional — auto-detected from the webinar page)", key="sponsor_name",
                              placeholder="e.g. One Hub Energy",
                              help="The sponsor is read automatically from the webinar page (logo + speaker) and "
@@ -206,11 +220,12 @@ if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_c
                                  "company": row.get("Company", ""),
                                  "is_moderator": bool(row.get("Moderator")),
                                  "photo": photos[i] if i < len(photos) else None})
-            # sponsor logo url from the picked filename
+            # sponsor logo: a manual upload wins; else the auto-detected URL
             sponsor_url = ""
             for l in sc.get("logos", []):
                 if sponsor_sel != "(none)" and l.endswith(sponsor_sel):
                     sponsor_url = l; break
+            sponsor_logo_path = _tmp_upload(sponsor_logo_file) if sponsor_logo_file else ""
             # contact parse "Name · Role · email"
             cbits = [c.strip() for c in contact.split("·")]
             contact_d = {"name": cbits[0] if cbits else "Cintia Hernández",
@@ -222,6 +237,7 @@ if st.button("Generate report (PPTX)", type="primary", disabled=not ready, use_c
             titles_override = [(r.get("Job title") or "").strip() for r in ss.get("titles_edit", []) if (r.get("Job title") or "").strip()]
             form = {"title": title, "subtitle": subtitle, "youtube_url": youtube_url,
                     "youtube_views": youtube_views, "sponsor_logo_url": sponsor_url,
+                    "sponsor_logo_path": sponsor_logo_path,
                     "sponsor_name": sponsor_name, "email_rows": email_rows, "email_totals": email_totals,
                     "speakers": speakers, "contact": contact_d,
                     "comp_override": comp_override or None, "titles_override": titles_override or None}
