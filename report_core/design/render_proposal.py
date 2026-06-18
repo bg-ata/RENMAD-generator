@@ -441,10 +441,10 @@ def slide_cover(st, lang):
     # Fit the title at the LARGEST font that stays within `avail`, using as FEW
     # lines as possible — but add lines (up to 4) when a long title would otherwise
     # be forced down to a tiny font. (Old behaviour capped at 2 lines -> tiny fonts.)
-    FLOOR, GOOD, MAXL = 46, 58, 4
-    lines, fs = [full], 116
-    for L in range(1, MAXL + 1):
-        f = 116
+    FLOOR, GOOD, CAP, MAXL = 46, 72, 112, 5
+    lines, fs = [full], CAP
+    for L in range(1, MAXL + 1):        # fewest lines that keep the font >= GOOD (>=36pt)
+        f = CAP
         while f > FLOOR:
             wl = wrap_lines(d, full, black(f), avail, max_lines=99)
             if len(wl) <= L and all(tw(d, ln, black(f)) <= avail for ln in wl):
@@ -453,9 +453,14 @@ def slide_cover(st, lang):
         lines, fs = wrap_lines(d, full, black(f), avail, max_lines=99), f
         if f >= GOOD or L == MAXL:
             break
-    yy = {1: 300, 2: 272, 3: 250}.get(len(lines), 230)
-    for ln in lines:
-        T(d,(70,yy),ln,black(fs),CHAR,anchor="la"); yy += int(fs*1.04)
+    y0 = {1: 300, 2: 272, 3: 250}.get(len(lines), 228)
+    pitch = int(fs * 1.12)                         # uniform leading for the stacked lines
+    for i, ln in enumerate(lines):
+        ly = y0 + i * pitch
+        NATIVE_NUMS.append({"slide": 0, "x": 70, "y": ly, "px": fs, "text": ln,
+                            "rgb": tuple(CHAR), "anchor": "la", "kind": "black",
+                            "url": None, "spacing": 4, "vbox": (ly - int(fs * 0.16), pitch)})
+    yy = y0 + len(lines) * pitch                    # subtitle/date flow below the title
     sub = WEBINAR.get("subtitle") or ""
     sfs = 32
     while sfs > 18 and tw(d, sub, semi(sfs)) > avail: sfs -= 1
@@ -782,13 +787,20 @@ def build_pptx(paths, name, photos=None, link=None, nums=None):
         s = sl[e["slide"]]
         l, t, r, b = _num_bbox(e)
         cx = (l + r) / 2.0; cy = (t + b) / 2.0
-        boxw = (r - l) + 44; boxh = e["px"] * 1.7
+        boxw = (r - l) + 44
         ax = e["anchor"][0]
         bl = l if ax == "l" else (r - boxw if ax == "r" else cx - boxw / 2.0)
-        bt = cy - boxh / 2.0
+        vbox = e.get("vbox")
+        if vbox:                                   # stacked lines (e.g. title): fixed,
+            bt, boxh = vbox[0], vbox[1]            # uniform vertical box -> even leading
+            _valign = MSO_ANCHOR.TOP
+        else:                                      # single line: centre on its glyph bbox
+            boxh = e["px"] * 1.7
+            bt = cy - boxh / 2.0
+            _valign = MSO_ANCHOR.MIDDLE
         tb = s.shapes.add_textbox(Inches(bl/PXIN), Inches(bt/PXIN), Inches(boxw/PXIN), Inches(boxh/PXIN))
         tf = tb.text_frame; tf.word_wrap = False; tf.auto_size = None
-        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tf.vertical_anchor = _valign
         tf.margin_left = 0; tf.margin_right = 0; tf.margin_top = 0; tf.margin_bottom = 0
         fam, bd = _KIND2PPTX[e["kind"]]
         lines = e["text"].split("\n")

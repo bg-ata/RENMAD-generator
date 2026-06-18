@@ -103,12 +103,12 @@ if youtube_url.strip() and y2.button("🔄 Retry auto-read", key="yt_retry",
 logo_opts = ["(none)"] + [l.split("/uploads/")[-1] for l in (sc or {}).get("logos", [])]
 sponsor_sel = y3.selectbox("Sponsor logo (auto-detected)", logo_opts,
                            help="Logos found on the webinar page. If the right one isn't "
-                                "here, upload it below.")
-sponsor_logo_file = st.file_uploader(
-    "…or upload the sponsor logo manually (PNG / JPG — use this if it wasn't found above)",
-    type=["png", "jpg", "jpeg", "webp"], key="sponsor_logo_upload")
+                                "here, upload it just below.")
+sponsor_logo_file = y3.file_uploader("…or upload it", type=["png", "jpg", "jpeg", "webp"],
+                                     key="sponsor_logo_upload",
+                                     help="Use this only if the sponsor logo wasn't auto-detected.")
 if sponsor_logo_file:
-    st.image(sponsor_logo_file, width=160, caption="This uploaded logo will be used.")
+    y3.image(sponsor_logo_file, width=110)
 sponsor_name = st.text_input("Sponsor name (optional — auto-detected from the webinar page)", key="sponsor_name",
                              placeholder="e.g. One Hub Energy",
                              help="The sponsor is read automatically from the webinar page (logo + speaker) and "
