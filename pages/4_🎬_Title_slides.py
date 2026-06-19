@@ -23,6 +23,34 @@ import sys
 import tempfile
 
 import streamlit as st
+from PIL import Image, ImageOps
+
+
+# Streamlit Community Cloud has ~1 GB RAM. Full-resolution phone photos (4000×3000
+# ≈ 36 MB once decoded) run through OpenCV face-detection + RGBA decode and blow
+# past that limit → the process is OOM-killed ("Oh no. Error running app"). Cap
+# every uploaded image at the entry point so the whole pipeline stays light.
+_MAX_PX = 1600
+
+def _shrink_image(name: str, raw: bytes, maxpx: int = _MAX_PX) -> bytes:
+    """Downscale an uploaded image so its longest side is <= maxpx. 1600 px is
+    ample for 1920 px slides and face detection. Returns the original bytes
+    unchanged if it's already small or can't be read."""
+    try:
+        im = Image.open(io.BytesIO(raw))
+        if max(im.size) <= maxpx:
+            return raw
+        im.draft("RGB", (maxpx, maxpx))           # fast partial JPEG decode (no-op for PNG)
+        im = ImageOps.exif_transpose(im)          # respect phone-camera rotation
+        im.thumbnail((maxpx, maxpx), Image.LANCZOS)
+        buf = io.BytesIO()
+        if name.lower().endswith((".jpg", ".jpeg")):
+            im.convert("RGB").save(buf, "JPEG", quality=88)
+        else:                                      # keep PNG (preserves logo transparency)
+            im.save(buf, "PNG")
+        return buf.getvalue()
+    except Exception:
+        return raw
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -228,7 +256,7 @@ pool_uploads = st.file_uploader(
 pool: dict[str, bytes] = {}
 if pool_uploads:
     for f in pool_uploads:
-        pool[f.name] = f.getvalue()
+        pool[f.name] = _shrink_image(f.name, f.getvalue())   # cap size → avoid Cloud OOM
     st.caption(f"{len(pool)} file(s) loaded.")
 
 
