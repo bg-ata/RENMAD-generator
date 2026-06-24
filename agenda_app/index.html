@@ -777,7 +777,15 @@ function normalize(){ S={...blankState(),...S}; S.days=(S.days||[]).map(x=>{ con
 function slug(s){ return (s||"agenda").trim().replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"").toLowerCase()||"agenda"; }
 
 // ── Export ──────────────────────────────────────────────────────────────────
-function parseSpeakers(txt){ const out=[]; (txt||"").split(/\n/).forEach(line=>{ let s=line.trim(); if(!s) return; s=s.replace(/^[-•*–·]\s*/,""); let mod=false; const m=s.match(/^(mod|moderator|moderador|moderadora|moderatore|moderatrice)\s*[:.]\s*(.*)$/i); if(m){ mod=true; s=m[2].trim(); } const p=s.split(",").map(x=>x.trim()).filter(Boolean); if(!p.length) return; out.push({name:p[0],role:p.length>2?p.slice(1,-1).join(", "):"",company:p.length>=2?p[p.length-1]:"",mod}); }); return out; }
+function parseSpeakers(txt){ const out=[]; (txt||"").split(/\n/).forEach(line=>{ let s=line.trim(); if(!s) return; s=s.replace(/^[-•*–·]\s*/,""); let mod=false; const m=s.match(/^(mod|moderator|moderador|moderadora|moderatore|moderatrice)\s*[:.]\s*(.*)$/i); if(m){ mod=true; s=m[2].trim(); } const p=s.split(",").map(x=>x.trim()).filter(Boolean); if(!p.length) return; out.push({name:p[0],role:p.length>2?p.slice(1,-1).join(", "):"",company:p.length>=2?p[p.length-1]:"",mod}); });
+  // Canonical order (must match the title-slide generator): by company, then
+  // surname, with the moderator(s) always last.
+  const surname=n=>((n||"").trim().split(/\s+/).pop()||"").toLowerCase();
+  out.sort((a,b)=>{ if(!!a.mod!==!!b.mod) return a.mod?1:-1;
+    const ca=(a.company||"").toLowerCase(), cb=(b.company||"").toLowerCase();
+    if(ca!==cb) return ca<cb?-1:1;
+    const sa=surname(a.name), sb=surname(b.name); return sa<sb?-1:(sa>sb?1:0); });
+  return out; }
 function inlineMd(s){ let h=esc(s);
   h=h.replace(/\*\*([\s\S]+?)\*\*/g,"<b>$1</b>").replace(/__([\s\S]+?)__/g,"<b>$1</b>").replace(/\*([^*\n]+?)\*/g,"<i>$1</i>");
   return h; }

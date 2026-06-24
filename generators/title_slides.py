@@ -765,6 +765,25 @@ def _add_spx_strip(slide, theme_key):
     return _SPX_RESERVE
 
 
+# ── Speaker ordering (must match the agenda generator) ───────────────────────
+
+def _surname(name: str) -> str:
+    toks = (name or "").strip().split()
+    return toks[-1].lower() if toks else ""
+
+
+def _order_speakers(speakers: list) -> list:
+    """Canonical speaker order, identical to the agenda generator: by company,
+    then surname, with the moderator(s) always last. Stable so equal keys keep
+    their input order."""
+    return sorted(
+        speakers,
+        key=lambda s: (bool(s.get("is_moderator")),
+                       (s.get("company") or "").strip().lower(),
+                       _surname(s.get("name", ""))),
+    )
+
+
 # ── Single-speaker card ───────────────────────────────────────────────────────
 
 def add_single_speaker_slide(prs: Presentation, theme_key: str, session: dict,
@@ -880,7 +899,8 @@ def add_panel_slide(prs: Presentation, theme_key: str, session: dict,
     logos = logos or {}
     ls = lang_strings or {}
     bp = _band_pos(layout, band_pos)
-    speakers = [s for s in session.get("speakers", []) if (s.get("name") or "").strip()]
+    speakers = _order_speakers(
+        [s for s in session.get("speakers", []) if (s.get("name") or "").strip()])
     if not speakers:
         return None
 
@@ -1274,7 +1294,8 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
             if include_breaks:
                 add_break_slide(prs, theme_key, sess, lang_strings, layout, lang2=lang2)
             continue
-        named = [s for s in sess.get("speakers", []) if (s.get("name") or "").strip()]
+        named = _order_speakers(
+            [s for s in sess.get("speakers", []) if (s.get("name") or "").strip()])
         if not named:
             continue
         if stype == "panel":
