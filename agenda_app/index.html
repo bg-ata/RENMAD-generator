@@ -190,6 +190,7 @@
     <select id="expLang" class="th" title="Which language to export"></select>
     <button class="btn" id="btnWord">📝 Word</button>
     <button class="btn" id="btnDocx">📄 .docx</button>
+ <button class="btn" id="btnSlides" title="Export a JSON for the Title Slides generator">🎬 Slides JSON</button>
     <button class="btn primary" id="btnPdf">📥 PDF</button>
     <button class="btn" id="btnPrint">🖨 Print</button>
   </div>
@@ -1024,6 +1025,35 @@ async function exportDocx(){
     for(const side of sides){ const blob=await buildDocxBlob(side); files.push({blob, name: slug(S.titleA||"agenda")+"_"+(side==="a"?S.langA:S.langB)+".docx"}); }
     saveFiles(files); }catch(e){ toast(".docx failed: "+(e.message||e)); }
 }
+// ── Title-slides handoff: structured JSON the Title Slides generator reads ────
+// directly, so it never has to parse the Word doc. Same speaker order applies.
+function buildSlideJson(){
+  const sessTypeOf=b=>{ if(b.type==="break"||b.type==="networking") return "break";
+    return parseSpeakers(b.spk).filter(x=>!x.mod).length>=2 ? "panel" : "presentation"; };
+  const sessions=[];
+  S.days.forEach(day=>{ computeAll(day);
+    day.tracks.forEach(track=>{ computeTrack(day,track);
+      track.blocks.forEach(b=>{
+        sessions.push({
+          time: fmtMin(b._s),
+          type: sessTypeOf(b),
+          break_kind: b.type==="networking" ? "networking" : null,
+          title_a: (b.aT||"").trim(),
+          title_b: (b.bT||b.aT||"").trim(),
+          speakers: parseSpeakers(b.spk).map(x=>({name:x.name, role:x.role, company:x.company, mod:!!x.mod})),
+        });
+      });
+    });
+  });
+  return { event:{ title:(S.titleA||"").trim(), theme:S.themeKey||"",
+                   languages: bothSides() ? [S.langA, S.langB] : [S.langA] },
+           sessions };
+}
+function exportSlideJson(){
+  const blob=new Blob([JSON.stringify(buildSlideJson(),null,2)],{type:"application/json"});
+  downloadBlob(blob, slug(S.titleA||"agenda")+"_slides.json");
+  toast("Title-slides JSON downloaded — upload it in the Title Slides tool");
+}
 async function downloadPdf(){
   if(typeof html2pdf==="undefined"){ toast("Need internet to build the PDF file — opening Print instead."); exportPdf(); return; }
   const sides=exportSides(); const files=[];
@@ -1070,6 +1100,7 @@ function initStatic(){
   const brand=document.querySelector("aside .brand"); if(brand){ brand.style.cursor="pointer"; brand.title="Home — all agendas"; brand.onclick=()=>{ view={type:"home"}; render(); }; }
   $("btnNew").onclick=newProject;
   $("btnWord").onclick=exportWord; $("btnDocx").onclick=exportDocx; $("btnPdf").onclick=downloadPdf; $("btnPrint").onclick=exportPdf;
+  $("btnSlides").onclick=exportSlideJson;
   document.addEventListener("click", closeMenus);
 }
 

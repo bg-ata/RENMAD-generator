@@ -77,6 +77,17 @@ _BREAK_KEYWORDS = {
     "cafe": "break", "pausa": "break", "przerwa": "break", "break": "break",
 }
 
+
+def break_kind_from_title(title: str) -> "str | None":
+    """Return the break/section kind (registration/welcome/lunch/cocktail/
+    networking/closing/break) implied by a title, in any language, or None.
+    Shared so the JSON path classifies breaks the same way as the docx parser."""
+    low = (title or "").lower()
+    for kw, kind in _BREAK_KEYWORDS.items():
+        if kw in low:
+            return kind
+    return None
+
 _TBC_RE = re.compile(
     r"^\s*to\s+be\s+confirmed\s*$|^\s*tbc\s*$|^\s*por\s+confirmar\s*$|"
     r"^\s*da\s+confermare\s*$|^\s*in\s+attesa\s+di\s+conferma\s*$",

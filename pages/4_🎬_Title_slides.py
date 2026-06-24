@@ -18,6 +18,7 @@ image. Auto-matched photos that miss just fall back to an initials placeholder y
 can swap in PowerPoint.
 """
 import io
+import json
 import os
 import sys
 import tempfile
@@ -55,7 +56,7 @@ def _shrink_image(name: str, raw: bytes, maxpx: int = _MAX_PX) -> bytes:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import THEMES, LANGUAGE_STRINGS
-from utils.parse_agenda import parse_agenda_docx, parse_agenda_rows
+from utils.parse_agenda import parse_agenda_docx, parse_agenda_rows, break_kind_from_title
 from utils.asset_match import match_assets
 from generators.title_slides import build_event_deck
 
@@ -68,7 +69,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-24b** · speakers ordered by company → surname, moderator last · robust agenda parsing · one-click download "
+st.caption("🟢 Build **2026-06-24c** · JSON handoff from the agenda generator (no Word parsing) · Word still supported · one-click download "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
@@ -141,6 +142,46 @@ def _merge_bilingual(primary: dict, secondary: dict) -> dict:
         out.append(ns)
     merged["sessions"] = out
     return merged
+
+
+def _agenda_from_json(data: dict, primary: str) -> dict:
+    """Build a canonical agenda dict from the agenda generator's JSON, using the
+    title in language `primary` ('a' or 'b'). Skips ALL Word parsing — the JSON
+    already has clean, ordered speakers + both-language titles per session."""
+    sessions = []
+    for i, s in enumerate(data.get("sessions") or []):
+        ta = (s.get("title_a") or "").strip()
+        tb = (s.get("title_b") or "").strip()
+        title = (ta if primary == "a" else tb) or ta or tb
+        spk = []
+        for sp in (s.get("speakers") or []):
+            nm = (sp.get("name") or "").strip()
+            if nm:
+                spk.append({"name": nm, "role": (sp.get("role") or "").strip(),
+                            "company": (sp.get("company") or "").strip(),
+                            "is_moderator": bool(sp.get("mod"))})
+        non_mod = [x for x in spk if not x["is_moderator"]]
+        bk = (s.get("break_kind") or "").strip() or break_kind_from_title(title)
+        jtype = (s.get("type") or "").strip().lower()
+        if jtype == "break" or bk:
+            stype, break_kind = "break", (bk or "break")
+        elif jtype in ("panel", "presentation"):
+            stype, break_kind = jtype, None
+        else:
+            stype = "panel" if len(non_mod) >= 2 else "presentation"
+            break_kind = None
+        sessions.append({
+            "id": f"s{i}", "day": int(s.get("day", 1) or 1),
+            "time": (s.get("time") or "").strip(), "start": (s.get("time") or "").strip(),
+            "type": stype, "break_kind": break_kind,
+            "title": title, "title_2": None, "delivery_language": None,
+            "speakers": spk,
+        })
+    ev = data.get("event") or {}
+    langs = [l for l in (ev.get("languages") or ["en"]) if l] or ["en"]
+    return {"event": {"title": (ev.get("title") or "").strip(), "language": langs[0],
+                      "register_url": ev.get("register_url")},
+            "sessions": sessions, "logo_wall": None}
 
 
 def _match_pool(agenda: dict, pool: dict) -> dict:
@@ -216,27 +257,51 @@ if not is_event and not has_lang2:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3 · AGENDAS
+# 3 · AGENDA
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("3 · Agenda(s)")
-st.caption("Word (.docx), Excel (.xlsx) or CSV. Upload one agenda per language — "
-           "they're matched by session order.")
+st.header("3 · Agenda")
+st.caption("Two ways in: a **JSON** from our agenda generator (recommended — no "
+           "formatting surprises, both languages in one file), or the **Word/Excel/"
+           "CSV** agenda (for events that aren't ours).")
 
-ac1, ac2 = st.columns(2)
-ag_file1 = ac1.file_uploader(f"Agenda · {LANGS[lang1]}", type=["docx", "xlsx", "xls", "csv"],
-                             key="ts_agenda1")
-ag_file2 = None
-if has_lang2:
-    ag_file2 = ac2.file_uploader(f"Agenda · {LANGS[lang2]}", type=["docx", "xlsx", "xls", "csv"],
-                                 key="ts_agenda2")
+ag_file1 = ag_file2 = None
+agenda1 = agenda2 = None
 
-agenda1 = _parse_uploaded_agenda(ag_file1) if ag_file1 else None
-agenda2 = _parse_uploaded_agenda(ag_file2) if (has_lang2 and ag_file2) else None
+json_file = st.file_uploader("① JSON from the agenda generator (RENMAD events)",
+                             type=["json"], key="ts_json")
 
-if agenda1:
-    ac1.success(f"✅ {_agenda_summary(agenda1)}")
-if agenda2:
-    ac2.success(f"✅ {_agenda_summary(agenda2)}")
+if json_file is not None:
+    try:
+        jdata = json.loads(json_file.getvalue().decode("utf-8-sig"))
+        jlangs = [l for l in (jdata.get("event", {}).get("languages") or []) if l]
+        if jlangs:
+            lang1 = jlangs[0]
+            if len(jlangs) > 1:
+                lang2, has_lang2 = jlangs[1], True
+        jtheme = (jdata.get("event", {}).get("theme") or "").strip()
+        if jtheme in THEMES:
+            theme_key = jtheme
+        agenda1 = _agenda_from_json(jdata, "a")
+        agenda2 = _agenda_from_json(jdata, "b") if has_lang2 else None
+        _ln = " + ".join(LANGS.get(l, l) for l in jlangs) or LANGS.get(lang1, lang1)
+        st.success(f"✅ JSON loaded — {_agenda_summary(agenda1)} · {_ln} · "
+                   f"theme: {THEMES.get(theme_key, {}).get('name', theme_key)}")
+    except Exception as e:
+        st.error(f"Couldn't read that JSON: {e}")
+else:
+    st.caption("② …or upload the Word/Excel/CSV agenda — one file per language:")
+    ac1, ac2 = st.columns(2)
+    ag_file1 = ac1.file_uploader(f"Agenda · {LANGS[lang1]}",
+                                 type=["docx", "xlsx", "xls", "csv"], key="ts_agenda1")
+    if has_lang2:
+        ag_file2 = ac2.file_uploader(f"Agenda · {LANGS[lang2]}",
+                                     type=["docx", "xlsx", "xls", "csv"], key="ts_agenda2")
+    agenda1 = _parse_uploaded_agenda(ag_file1) if ag_file1 else None
+    agenda2 = _parse_uploaded_agenda(ag_file2) if (has_lang2 and ag_file2) else None
+    if agenda1:
+        ac1.success(f"✅ {_agenda_summary(agenda1)}")
+    if agenda2:
+        ac2.success(f"✅ {_agenda_summary(agenda2)}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -329,6 +394,8 @@ else:
     sig = [mode, theme_key, lang1, lang2, title_fit, opt_cover, opt_breaks,
            tuple(util_pick), opt_cards, event_band]
     hsh = hashlib.sha1("|".join(str(x) for x in sig).encode())
+    if json_file:
+        hsh.update(json_file.getvalue())
     if ag_file1:
         hsh.update(ag_file1.getvalue())
     if ag_file2:
