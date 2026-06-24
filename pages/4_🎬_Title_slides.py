@@ -68,7 +68,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-16h** · slimmer SPX top strip · bilingual transitions · balanced logos · one-click download "
+st.caption("🟢 Build **2026-06-24** · robust speaker parsing (merged-cell agendas) · slimmer SPX strip · one-click download "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}

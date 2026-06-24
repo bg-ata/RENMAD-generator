@@ -120,39 +120,54 @@ def _looks_like_name(s: str) -> bool:
     return capitalised >= 1
 
 
-def _parse_speaker_line(line: str) -> dict | None:
-    """'Name, Role, Company' OR 'Name — Role, Company' → dict, or None.
+# Moderator prefix in any language, incl. slash forms (Moderatore/trice,
+# Moderador/a, Moderator/ka) the agenda generator emits.
+_MOD_INLINE_RE = re.compile(
+    r"^\s*moder[a-zà-ÿ]*(?:\s*/\s*[a-zà-ÿ]+)?\s*[:.\-]\s+(.+)$", re.IGNORECASE)
 
-    Two agenda dialects: roles separated from the name by a comma (old format)
-    or by a spaced em/en-dash / hyphen (newer 3-column agendas). The dash must be
-    surrounded by spaces, so hyphenated names (Jean-Pierre) and roles (Co-Head)
-    stay intact."""
+
+def _parse_speaker_line(line: str) -> dict | None:
+    """'Name, Role, Company' OR 'Name — Role, Company' → dict, or None. Strips a
+    leading 'Moderator:' (any language) and flags the speaker as moderator.
+
+    Two agenda dialects: role separated from the name by a comma, or by a spaced
+    em/en-dash / hyphen. The dash split is used only when the part before the dash
+    has NO comma, so a mixed 'Name, Role — …, Company' line keeps just the name."""
     line = _strip(line)
     if not line or _is_tbc(line):
         return None
 
+    is_mod = False
+    mm = _MOD_INLINE_RE.match(line)
+    while mm:                                  # repeat: some agendas double the prefix
+        is_mod = True
+        line = mm.group(1).strip()
+        if not line or _is_tbc(line):
+            return None
+        mm = _MOD_INLINE_RE.match(line)
+
     md = re.match(r"^(.+?)\s+[—–-]\s+(.+)$", line)
-    if md:
+    if md and "," not in md.group(1):
         name = md.group(1).strip()
         rest = md.group(2).strip()
         if _looks_like_name(name) and not _is_tbc(name):
             rp = [p.strip() for p in rest.split(",") if p.strip()]
             if len(rp) >= 2:
                 return {"name": name, "role": ", ".join(rp[:-1]),
-                        "company": rp[-1], "is_moderator": False}
+                        "company": rp[-1], "is_moderator": is_mod}
             if len(rp) == 1:
                 return {"name": name, "role": "", "company": rp[0],
-                        "is_moderator": False}
+                        "is_moderator": is_mod}
 
     parts = [p.strip() for p in line.split(",")]
     name = parts[0]
     if _is_tbc(name) or not _looks_like_name(name):
         return None
     if len(parts) == 1:
-        return {"name": name, "role": "", "company": "", "is_moderator": False}
+        return {"name": name, "role": "", "company": "", "is_moderator": is_mod}
     company = parts[-1]
     role = ", ".join(parts[1:-1]) if len(parts) > 2 else ""
-    return {"name": name, "role": role, "company": company, "is_moderator": False}
+    return {"name": name, "role": role, "company": company, "is_moderator": is_mod}
 
 
 # ── Time helpers ──────────────────────────────────────────────────────────────
@@ -226,29 +241,23 @@ def _classify_block(time: str, block: str, idx: int, day: int) -> dict | None:
         if ml:
             delivery_lang = ml.group(1).capitalize()
 
-    # ── Speakers: collect lines after the Speaker(s): marker, plus Moderator ──
+    # ── Speakers: every line after the Speaker(s): marker is one speaker; a
+    #    Moderator line (anywhere) is also a speaker and must NOT stop collection.
     speakers: list[dict] = []
     in_speakers = False
     for l in lines[1:]:
-        mod = _MOD_PREFIX_RE.match(l)
-        if mod:
-            sp = _parse_speaker_line(mod.group(1))
-            if sp:
-                sp["is_moderator"] = True
-                speakers.append(sp)
-            in_speakers = False
-            continue
         if _SPEAKERS_MARKER_RE.match(l):
             in_speakers = True
             continue
-        if not in_speakers:
+        is_mod_line = bool(_MOD_INLINE_RE.match(l))
+        if not in_speakers and not is_mod_line:
             continue
-        # Inside the speakers block: parse name lines, skip bullets/sentences.
         if l.startswith(_BULLET_PREFIXES):
             continue
         sp = _parse_speaker_line(l)
         if sp:
             speakers.append(sp)
+            in_speakers = True       # a moderator line confirms we're in the people block
 
     # If no explicit "Speakers:" marker but the block clearly names people
     # (e.g. a short Presentation with a single "Name, Role, Company"), try the
@@ -432,6 +441,33 @@ def _first_title_text(doc, agenda_tables) -> str:
     return ""
 
 
+def _row_fields(row) -> "tuple | None":
+    """Normalise a table row to (time, programme, speakers).
+
+    Hand-built agendas use MERGED cells, which python-docx expands into repeated
+    and empty cells (e.g. [time, time, '', '', prog, prog, speakers]). Collapse
+    adjacent duplicates and drop empty fields, then map: first field = time,
+    last field = speakers (when ≥3 fields remain), the richest middle field =
+    programme. The clean 2-/3-column generator output passes through unchanged."""
+    seq = []
+    for cell in row.cells:
+        s = _strip(cell.text)
+        if seq and seq[-1][0] == s:        # adjacent duplicate from a merged cell
+            continue
+        seq.append((s, cell.text))
+    seq = [(s, raw) for (s, raw) in seq if s]      # drop empty fields
+    if not seq:
+        return None
+    time = seq[0][0]
+    if len(seq) == 1:
+        return (time, "", "")
+    if len(seq) == 2:
+        return (time, seq[1][1], "")
+    speakers = seq[-1][1]
+    programme = max(seq[1:-1], key=lambda x: len(x[0]))[1]
+    return (time, programme, speakers)
+
+
 def parse_agenda_docx(path: str) -> dict:
     """Open a .docx agenda (the RENMAD Timed Agenda generator's output) and parse
     it. Finds the agenda table(s) by signature — NOT by position — so it works
@@ -454,20 +490,18 @@ def parse_agenda_docx(path: str) -> dict:
     rows: list[tuple[str, str]] = []
     for tbl in agenda_tables:
         for row in tbl.rows:
-            cells = row.cells
-            if len(cells) < 2:
+            fields = _row_fields(row)
+            if not fields:
                 continue
-            time = _strip(cells[0].text)
-            block = cells[1].text
+            time, programme, speakers = fields
             # Skip the column-header row of each agenda table.
-            if _is_header_row(time, block):
+            if _is_header_row(time, programme):
                 continue
-            # Speakers may sit in a dedicated 3rd column instead of an inline
-            # "Speakers:" marker — fold it in so the normal parsing picks it up.
-            if len(cells) >= 3:
-                spk = _strip(cells[2].text)
-                if spk:
-                    block = block.rstrip() + "\nSpeakers:\n" + cells[2].text.strip()
+            # The speaker column (rightmost) is folded in with a "Speakers:" marker
+            # so the normal speaker parsing picks up each line as one speaker.
+            block = programme
+            if speakers:
+                block = block.rstrip() + "\nSpeakers:\n" + speakers.strip()
             rows.append((time, block))
 
     ag = parse_agenda_rows(rows, event_title=event_title)
