@@ -56,7 +56,8 @@ def _shrink_image(name: str, raw: bytes, maxpx: int = _MAX_PX) -> bytes:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import THEMES, LANGUAGE_STRINGS
-from utils.parse_agenda import parse_agenda_docx, parse_agenda_rows, break_kind_from_title
+from utils.parse_agenda import (parse_agenda_docx, parse_agenda_rows,
+                                break_kind_from_title, parse_speaker_text)
 from utils.asset_match import match_assets
 from generators.title_slides import build_event_deck
 
@@ -69,7 +70,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-24c** · JSON handoff from the agenda generator (no Word parsing) · Word still supported · one-click download "
+st.caption("🟢 Build **2026-06-25** · reads both JSON shapes (Slides JSON + saved project) · Word still supported · one-click download "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
@@ -144,12 +145,46 @@ def _merge_bilingual(primary: dict, secondary: dict) -> dict:
     return merged
 
 
+def _json_meta(data: dict) -> dict:
+    """Event title / theme / languages from EITHER JSON shape (the Slides JSON
+    `{event:…}` or a project/state JSON with top-level titleA/themeKey/langA)."""
+    ev = data.get("event") or {}
+    title = (ev.get("title") or data.get("titleA") or "").strip()
+    theme = (ev.get("theme") or data.get("themeKey") or "").strip()
+    langs = [l for l in (ev.get("languages") or []) if l]
+    if not langs:
+        langs = [data.get("langA") or "en"]
+        has_b = any(b.get("bT") for d in (data.get("days") or [])
+                    for t in (d.get("tracks") or []) for b in (t.get("blocks") or []))
+        if data.get("langB") and has_b:
+            langs.append(data.get("langB"))
+    return {"title": title, "theme": theme, "languages": langs or ["en"]}
+
+
+def _json_sessions(data: dict) -> list:
+    """Normalise either JSON shape to a flat list of raw sessions
+    {time, type, break_kind, title_a, title_b, speakers[{name,role,company,mod}]}."""
+    if isinstance(data.get("sessions"), list):
+        return data["sessions"]                       # the Slides JSON
+    raw = []                                           # a project/state JSON
+    for day in (data.get("days") or []):
+        for track in (day.get("tracks") or []):
+            for b in (track.get("blocks") or []):
+                spk = [{"name": sp["name"], "role": sp["role"],
+                        "company": sp["company"], "mod": sp["is_moderator"]}
+                       for sp in parse_speaker_text(b.get("spk"))]
+                raw.append({"time": "", "type": b.get("type"), "break_kind": None,
+                            "title_a": (b.get("aT") or ""),
+                            "title_b": (b.get("bT") or b.get("aT") or ""),
+                            "speakers": spk})
+    return raw
+
+
 def _agenda_from_json(data: dict, primary: str) -> dict:
-    """Build a canonical agenda dict from the agenda generator's JSON, using the
-    title in language `primary` ('a' or 'b'). Skips ALL Word parsing — the JSON
-    already has clean, ordered speakers + both-language titles per session."""
+    """Build a canonical agenda dict from EITHER agenda-generator JSON shape,
+    using the title in language `primary` ('a' or 'b'). Skips ALL Word parsing."""
     sessions = []
-    for i, s in enumerate(data.get("sessions") or []):
+    for i, s in enumerate(_json_sessions(data)):
         ta = (s.get("title_a") or "").strip()
         tb = (s.get("title_b") or "").strip()
         title = (ta if primary == "a" else tb) or ta or tb
@@ -177,10 +212,9 @@ def _agenda_from_json(data: dict, primary: str) -> dict:
             "title": title, "title_2": None, "delivery_language": None,
             "speakers": spk,
         })
-    ev = data.get("event") or {}
-    langs = [l for l in (ev.get("languages") or ["en"]) if l] or ["en"]
-    return {"event": {"title": (ev.get("title") or "").strip(), "language": langs[0],
-                      "register_url": ev.get("register_url")},
+    meta = _json_meta(data)
+    return {"event": {"title": meta["title"], "language": meta["languages"][0],
+                      "register_url": (data.get("event") or {}).get("register_url")},
             "sessions": sessions, "logo_wall": None}
 
 
@@ -273,19 +307,23 @@ json_file = st.file_uploader("① JSON from the agenda generator (RENMAD events)
 if json_file is not None:
     try:
         jdata = json.loads(json_file.getvalue().decode("utf-8-sig"))
-        jlangs = [l for l in (jdata.get("event", {}).get("languages") or []) if l]
-        if jlangs:
-            lang1 = jlangs[0]
-            if len(jlangs) > 1:
-                lang2, has_lang2 = jlangs[1], True
-        jtheme = (jdata.get("event", {}).get("theme") or "").strip()
-        if jtheme in THEMES:
-            theme_key = jtheme
+        meta = _json_meta(jdata)
+        jlangs = meta["languages"]
+        lang1 = jlangs[0]
+        if len(jlangs) > 1:
+            lang2, has_lang2 = jlangs[1], True
+        if meta["theme"] in THEMES:
+            theme_key = meta["theme"]
         agenda1 = _agenda_from_json(jdata, "a")
         agenda2 = _agenda_from_json(jdata, "b") if has_lang2 else None
-        _ln = " + ".join(LANGS.get(l, l) for l in jlangs) or LANGS.get(lang1, lang1)
+        n_spk = sum(len(s.get("speakers", [])) for s in agenda1["sessions"])
+        _ln = " + ".join(LANGS.get(l, l) for l in jlangs)
         st.success(f"✅ JSON loaded — {_agenda_summary(agenda1)} · {_ln} · "
                    f"theme: {THEMES.get(theme_key, {}).get('name', theme_key)}")
+        if n_spk == 0:
+            st.warning("⚠️ This JSON has **no speakers**. Make sure you exported it with "
+                       "the **🎬 Slides JSON** button in the agenda generator (not a saved "
+                       "project), and that the agenda actually has speakers filled in.")
     except Exception as e:
         st.error(f"Couldn't read that JSON: {e}")
 else:

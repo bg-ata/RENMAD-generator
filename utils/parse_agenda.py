@@ -78,6 +78,18 @@ _BREAK_KEYWORDS = {
 }
 
 
+def parse_speaker_text(text: str) -> list:
+    """Parse a multi-line speaker blob ('Name, Role, Company' / 'Moderator: …'
+    per line) into speaker dicts. Used for the agenda generator's project/state
+    JSON, where speakers are still a text field on each block."""
+    out = []
+    for line in (text or "").replace("\r", "\n").split("\n"):
+        sp = _parse_speaker_line(line)
+        if sp:
+            out.append(sp)
+    return out
+
+
 def break_kind_from_title(title: str) -> "str | None":
     """Return the break/section kind (registration/welcome/lunch/cocktail/
     networking/closing/break) implied by a title, in any language, or None.
