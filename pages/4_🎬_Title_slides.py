@@ -70,7 +70,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-25d** · event panels = one slide (no per-speaker cards) · pick lead/secondary language · blank QR (brand colours) "
+st.caption("🟢 Build **2026-06-25e** · languages auto-detected (one lead/secondary picker) · bilingual mute slide · one slide per panel "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
@@ -269,25 +269,17 @@ else:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2 · BASICS
+# 2 · THEME
 # ══════════════════════════════════════════════════════════════════════════════
-st.header("2 · Details")
-
-c1, c2, c3 = st.columns([1.4, 1, 1])
+st.header("2 · Theme")
 theme_keys = sorted(THEMES.keys(), key=lambda k: THEMES[k]["name"])
-theme_key = c1.selectbox("Theme (colour)", theme_keys,
-                         format_func=lambda k: THEMES[k]["name"], key="ts_theme")
-lang1 = c2.selectbox("Language 1 (primary)", list(LANGS.keys()),
-                     format_func=lambda k: LANGS[k], index=0, key="ts_lang1")
-lang2 = c3.selectbox("Language 2 (optional)", ["—"] + list(LANGS.keys()),
-                     format_func=lambda k: "— none —" if k == "—" else LANGS[k],
-                     index=0, key="ts_lang2")
-has_lang2 = lang2 != "—"
+theme_key = st.selectbox(
+    "Theme (colour) — auto-filled from a JSON; set it yourself for a Word agenda",
+    theme_keys, format_func=lambda k: THEMES[k]["name"], key="ts_theme")
 
-if is_event and not has_lang2:
-    st.info("ℹ️ The **Event** deck is bilingual. Without a 2nd language you'll get a single-language deck.")
-if not is_event and not has_lang2:
-    st.caption("With one language, Marketing produces **1 deck**.")
+# Languages are detected from the agenda (a JSON carries them; for Word you tag
+# each file). Which one LEADS is chosen once the agenda is loaded, below.
+lang1, lang2, has_lang2 = "en", "it", False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -327,13 +319,19 @@ if json_file is not None:
     except Exception as e:
         st.error(f"Couldn't read that JSON: {e}")
 else:
-    st.caption("② …or upload the Word/Excel/CSV agenda — one file per language:")
+    st.caption("② …or upload the Word/Excel/CSV agenda — one file per language. "
+               "Word files don't say what language they're in, so tag each one:")
+    _lk = list(LANGS)
     ac1, ac2 = st.columns(2)
-    ag_file1 = ac1.file_uploader(f"Agenda · {LANGS[lang1]}",
-                                 type=["docx", "xlsx", "xls", "csv"], key="ts_agenda1")
-    if has_lang2:
-        ag_file2 = ac2.file_uploader(f"Agenda · {LANGS[lang2]}",
-                                     type=["docx", "xlsx", "xls", "csv"], key="ts_agenda2")
+    ag_file1 = ac1.file_uploader("Agenda file 1", type=["docx", "xlsx", "xls", "csv"],
+                                 key="ts_agenda1")
+    lang1 = ac1.selectbox("…its language", _lk, format_func=lambda k: LANGS[k],
+                          index=_lk.index("en"), key="ts_wlang1")
+    ag_file2 = ac2.file_uploader("Agenda file 2 (optional — 2nd language)",
+                                 type=["docx", "xlsx", "xls", "csv"], key="ts_agenda2")
+    lang2 = ac2.selectbox("…its language", _lk, format_func=lambda k: LANGS[k],
+                          index=_lk.index("it"), key="ts_wlang2")
+    has_lang2 = ag_file2 is not None
     agenda1 = _parse_uploaded_agenda(ag_file1) if ag_file1 else None
     agenda2 = _parse_uploaded_agenda(ag_file2) if (has_lang2 and ag_file2) else None
     if agenda1:

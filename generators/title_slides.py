@@ -28,7 +28,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml import parse_xml
 from pptx.oxml.ns import qn, nsdecls
 
-from config import THEMES
+from config import THEMES, LANGUAGE_STRINGS
 from utils import svg_icons
 
 # ── Geometry (16:9 widescreen) ────────────────────────────────────────────────
@@ -1194,20 +1194,12 @@ _NETWORK_LABEL = {"en": "Network", "es": "Red", "it": "Rete", "pl": "Sieć"}
 _PASSWORD_LABEL = {"en": "Password", "es": "Contraseña", "it": "Password", "pl": "Hasło"}
 
 
-_MUTE_SUB = {
-    "en": "Please silence your devices during the sessions.",
-    "es": "Silencia tus dispositivos durante las sesiones.",
-    "it": "Silenzia i tuoi dispositivi durante le sessioni.",
-    "pl": "Prosimy o wyciszenie urządzeń podczas sesji.",
-}
-
-
 def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
                       lang_strings: dict | None = None, data: dict | None = None,
-                      lang: str = "en"):
+                      lang: str = "en", lang2: str | None = None):
     """A housekeeping slide (kind = 'mute' | 'wifi' | 'qr') in the same split-panel
-    style as the breaks: charcoal icon panel + left-aligned title/detail. All
-    native so a colleague can edit the wording / WiFi / link or delete it."""
+    style as the breaks: charcoal icon panel + left-aligned title. Bilingual when
+    `lang2` is given. All native so a colleague can edit it."""
     ls = lang_strings or {}
     data = data or {}
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -1219,9 +1211,12 @@ def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
 
     if kind == "mute":
         title = ls.get("mute_phone", "Mute your phone").upper()
-        sub = _MUTE_SUB.get(lang, _MUTE_SUB["en"])
-        _section_text(slide, x0, title,
-                      detail_runs=[[(sub, F_BOLD, 22, _CREAM, False)]])
+        title2 = None
+        if lang2:
+            t2 = (LANGUAGE_STRINGS.get(lang2, {}).get("mute_phone") or "").upper()
+            if t2 and t2 != title:
+                title2 = t2
+        _section_text(slide, x0, title, title2=title2)
 
     elif kind == "wifi":
         net = (data.get("network") or "____________").strip()
@@ -1269,7 +1264,7 @@ def build_event_deck(agenda: dict, theme_key: str, out_path: str,
         ev = agenda.get("event", {})
         for k in utility_kinds:
             add_utility_slide(prs, theme_key, k, lang_strings,
-                              data={"url": ev.get("register_url")}, lang=lang)
+                              data={"url": ev.get("register_url")}, lang=lang, lang2=lang2)
 
     for sess in agenda.get("sessions", []):
         stype = sess.get("type")
