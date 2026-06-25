@@ -70,7 +70,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-25c** · event panels: no per-speaker cards by default · fully blank QR slide · reads both JSON shapes "
+st.caption("🟢 Build **2026-06-25d** · event panels = one slide (no per-speaker cards) · pick lead/secondary language · blank QR (brand colours) "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
@@ -341,6 +341,16 @@ else:
     if agenda2:
         ac2.success(f"✅ {_agenda_summary(agenda2)}")
 
+# ── Lead / secondary language (when the deck is bilingual) ────────────────────
+if has_lang2 and agenda1 is not None and agenda2 is not None:
+    lead = st.radio(
+        "Lead language on the slides — shown bigger, on top (the other sits underneath):",
+        [lang1, lang2], format_func=lambda l: LANGS.get(l, l), horizontal=True, key="ts_lead",
+    )
+    if lead == lang2:                       # user wants the second language to lead → swap
+        agenda1, agenda2 = agenda2, agenda1
+        lang1, lang2 = lang2, lang1
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 4 · PHOTOS & LOGOS
@@ -385,13 +395,12 @@ with st.expander("⚙️ Options (the defaults usually work)", expanded=False):
         opt_breaks = False
         util_pick = []
         st.caption("Marketing = speaker slides only (no cover, transitions or utility slides).")
-    opt_cards = st.checkbox(
-        "Also add one card per panellist (after each panel slide)",
-        value=(not is_event), key="ts_cards",
-        help="Off for event decks (you just want the combined panel slide on "
-             "screen). On for marketing, where the individual cards are the "
-             "progressive-reveal LinkedIn assets.",
-    )
+    # Per-panellist cards are a MARKETING thing (the LinkedIn progressive reveal).
+    # Event decks only want the combined panel slide — never the extra cards, so
+    # there's nothing to delete by hand and the file stays small.
+    opt_cards = not is_event
+    if is_event:
+        st.caption("Event panels show **one combined slide** — no extra card per panellist.")
     title_fit = st.radio(
         "Title size", ["flexible", "uniform"], horizontal=True, key="ts_fit",
         format_func={"flexible": "Flexible (big title, band adapts)",

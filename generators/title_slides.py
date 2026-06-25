@@ -1211,12 +1211,11 @@ def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
     ls = lang_strings or {}
     data = data or {}
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    if kind == "qr":
-        _white_bg(slide)          # a totally blank slide — the QR is added by hand
-        return slide
     icon_name = {"mute": "volume_off", "wifi": "wifi", "qr": "qr"}.get(kind, kind)
     x0 = _section_base(slide, theme_key, icon_name)
     cw = SLIDE_W - x0 - Inches(0.55)
+    # 'qr' = the charcoal+orange transition frame with the QR icon, but the content
+    # area left blank on purpose — the real QR (and any wording) is added by hand.
 
     if kind == "mute":
         title = ls.get("mute_phone", "Mute your phone").upper()
