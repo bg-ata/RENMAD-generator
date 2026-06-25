@@ -1235,15 +1235,13 @@ def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
         _add_text(slide, x0, Inches(1.35), cw, Inches(1.7),
                   [[(title, F_BLACK, 40, WHITE, True)]],
                   align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
+        # Blank white box left empty on purpose — paste the real QR over it.
         box = Inches(2.3)
         ph = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
                                     int(x0), Inches(3.45), box, box)
         ph.fill.solid(); ph.fill.fore_color.rgb = WHITE
-        ph.line.color.rgb = WHITE; ph.shadow.inherit = False
-        ph.text_frame.text = "QR"
-        _p = ph.text_frame.paragraphs[0]; _p.alignment = PP_ALIGN.CENTER
-        _r = _p.runs[0]; _r.font.name = F_BOLD; _r.font.size = Pt(28)
-        _r.font.color.rgb = _theme_rgb(theme_key)
+        ph.line.color.rgb = _CREAM; ph.line.width = Pt(1.5)
+        ph.shadow.inherit = False
         url = (data.get("url") or "").strip()
         if url:
             _add_text(slide, x0, Inches(6.0), cw, Inches(0.7),

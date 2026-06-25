@@ -70,7 +70,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-25** · reads both JSON shapes (Slides JSON + saved project) · Word still supported · one-click download "
+st.caption("🟢 Build **2026-06-25b** · event panels: no per-speaker cards by default · blank QR slide · reads both JSON shapes "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}
@@ -386,9 +386,11 @@ with st.expander("⚙️ Options (the defaults usually work)", expanded=False):
         util_pick = []
         st.caption("Marketing = speaker slides only (no cover, transitions or utility slides).")
     opt_cards = st.checkbox(
-        "Include an individual card per speaker in panels", value=True, key="ts_cards",
-        help="As well as the combined panel slide, one card per panellist "
-             "(the progressive-reveal LinkedIn assets).",
+        "Also add one card per panellist (after each panel slide)",
+        value=(not is_event), key="ts_cards",
+        help="Off for event decks (you just want the combined panel slide on "
+             "screen). On for marketing, where the individual cards are the "
+             "progressive-reveal LinkedIn assets.",
     )
     title_fit = st.radio(
         "Title size", ["flexible", "uniform"], horizontal=True, key="ts_fit",
