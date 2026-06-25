@@ -70,7 +70,7 @@ st.caption(
     "(fully editable PPTX). You only pick one thing: **Marketing** or **Event** — "
     "everything else is set for you."
 )
-st.caption("🟢 Build **2026-06-25b** · event panels: no per-speaker cards by default · blank QR slide · reads both JSON shapes "
+st.caption("🟢 Build **2026-06-25c** · event panels: no per-speaker cards by default · fully blank QR slide · reads both JSON shapes "
            "— if you don't see this line, the app is still on an older version.")
 
 LANGS = {"en": "English", "es": "Spanish", "it": "Italian", "pl": "Polish"}

@@ -1211,6 +1211,9 @@ def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
     ls = lang_strings or {}
     data = data or {}
     slide = prs.slides.add_slide(prs.slide_layouts[6])
+    if kind == "qr":
+        _white_bg(slide)          # a totally blank slide — the QR is added by hand
+        return slide
     icon_name = {"mute": "volume_off", "wifi": "wifi", "qr": "qr"}.get(kind, kind)
     x0 = _section_base(slide, theme_key, icon_name)
     cw = SLIDE_W - x0 - Inches(0.55)
@@ -1230,23 +1233,6 @@ def add_utility_slide(prs: Presentation, theme_key: str, kind: str,
             [(f"{nlab}   ", F_REG, 24, _CREAM, False), (net, F_BOLD, 24, WHITE, True)],
             [(f"{plab}   ", F_REG, 24, _CREAM, False), (pwd, F_BOLD, 24, WHITE, True)]])
 
-    elif kind == "qr":
-        title = _SCAN_LABEL.get(lang, "Scan to register").upper()
-        _add_text(slide, x0, Inches(1.35), cw, Inches(1.7),
-                  [[(title, F_BLACK, 40, WHITE, True)]],
-                  align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
-        # Blank white box left empty on purpose — paste the real QR over it.
-        box = Inches(2.3)
-        ph = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
-                                    int(x0), Inches(3.45), box, box)
-        ph.fill.solid(); ph.fill.fore_color.rgb = WHITE
-        ph.line.color.rgb = _CREAM; ph.line.width = Pt(1.5)
-        ph.shadow.inherit = False
-        url = (data.get("url") or "").strip()
-        if url:
-            _add_text(slide, x0, Inches(6.0), cw, Inches(0.7),
-                      [[(url, F_BOLD, 20, _CREAM, True)]],
-                      align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP)
     return slide
 
 
