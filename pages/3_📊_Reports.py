@@ -34,6 +34,9 @@ except Exception as e:
 LANGS = {"English": "en", "Spanish": "es", "Italian": "it", "Polish": "pl"}
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
+from dc_auth import require_dispatch_login  # gate: Dispatch Center only
+require_dispatch_login()
+
 st.title("📊 Webinar Reports")
 st.caption("Branded **Marketing & Audience Report** (editable PPTX) for a paid webinar.")
 if not _CORE_OK:

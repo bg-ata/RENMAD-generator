@@ -64,6 +64,9 @@ from generators.title_slides import build_event_deck
 
 # ── Page chrome ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Title Slides", page_icon="🎬", layout="wide")
+
+from dc_auth import require_dispatch_login  # gate: Dispatch Center only
+require_dispatch_login()
 st.title("🎬 Title Slides")
 st.caption(
     "Upload the event agenda and generate the on-screen **title slides** "

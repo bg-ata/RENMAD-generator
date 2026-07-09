@@ -17,6 +17,9 @@ from utils.slide_store import (
 
 st.set_page_config(page_title="RENMAD Webinar Generator", page_icon="🎤", layout="wide")
 
+from dc_auth import require_dispatch_login  # gate: Dispatch Center only
+require_dispatch_login()
+
 # Assets live in the project root, NOT next to this page file
 ASSETS_DIR = os.path.join(_PROJECT_ROOT, "assets")
 LOGO_DIR   = os.path.join(ASSETS_DIR, "logos")

@@ -13,6 +13,10 @@ import streamlit as st
 
 st.set_page_config(page_title="RENMAD Content Generator", page_icon="🎨", layout="wide")
 
+# Only reachable from the Dispatch Center's Tools page (see dc_auth.py)
+from dc_auth import require_dispatch_login
+require_dispatch_login()
+
 # ── ATA logo + sidebar ───────────────────────────────────────────────────────
 _LOGO_DIR = os.path.join(os.path.dirname(__file__), "assets", "logos")
 _ata_logo = os.path.join(_LOGO_DIR, "ata_logo.png")

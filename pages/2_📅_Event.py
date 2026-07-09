@@ -297,6 +297,9 @@ def _renmad_logo_img() -> Image.Image | None:
 
 # ── Page chrome ──────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Event Image Generator", page_icon="📅", layout="wide")
+
+from dc_auth import require_dispatch_login  # gate: Dispatch Center only
+require_dispatch_login()
 st.title("📅 Event Image Generator")
 st.caption(
     "Pick the event (sidebar), choose **which image you want to make** "
