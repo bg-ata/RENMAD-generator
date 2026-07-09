@@ -25,32 +25,23 @@
   const inpCSS  = "width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d9dce0;border-radius:8px;font-size:15px;margin-bottom:10px";
   const btnCSS  = "background:#E0392B;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-weight:700;font-size:15px;cursor:pointer;width:100%";
   function showLoading(msg){ ov.style.display="flex"; ov.innerHTML='<div style="'+cardCSS+';text-align:center"><div style="font-weight:800;font-size:18px;margin-bottom:8px">RENMAD Agenda</div><div style="color:#5a616a">'+(msg||"Loading…")+'</div></div>'; }
-  function showLogin(prefillEmail){
+  // Access wall: this app opens only from the Dispatch Center's Tools page.
+  function showWall(){
     ov.style.display="flex";
     ov.innerHTML='<div style="'+cardCSS+'">'
-      +'<div style="font-weight:800;font-size:20px;margin-bottom:2px">RENMAD Agenda</div>'
-      +'<div style="color:#5a616a;margin-bottom:18px;font-size:14px">Enter the team passcode to open the shared agendas.</div>'
-      +'<label style="font-size:12px;color:#8a9098;font-weight:600">Your ATA email</label>'
-      +'<input id="cloEmail" type="email" placeholder="you@'+esc(DOMAIN)+'" value="'+esc(prefillEmail||"")+'" style="'+inpCSS+';margin-top:4px">'
-      +'<label style="font-size:12px;color:#8a9098;font-weight:600">Team passcode</label>'
-      +'<input id="cloPass" type="password" placeholder="••••••••" style="'+inpCSS+';margin-top:4px">'
-      +'<button id="cloGo" style="'+btnCSS+'">Enter</button>'
-      +'<div id="cloMsg" style="margin-top:12px;font-size:13px;color:#5a616a;min-height:18px"></div>'
+      +'<div style="font-weight:800;font-size:20px;margin-bottom:2px">RENMAD <span style="color:#E0392B">Dispatch Center</span></div>'
+      +'<div style="color:#5a616a;margin:12px 0 16px;font-size:14px">This tool opens from the Dispatch Center’s <b>Tools</b> page — it can’t be used from a direct link. If you came from Tools and see this, your session may have expired: go back and click the tile again.</div>'
+      +'<a href="'+esc(window.DC_TOOLS_URL||"#")+'" style="'+btnCSS+';display:block;text-align:center;text-decoration:none;box-sizing:border-box">Open the Dispatch Center → Tools</a>'
       +'</div>';
-    const em=document.getElementById("cloEmail"), pw=document.getElementById("cloPass"), btn=document.getElementById("cloGo"), msg=document.getElementById("cloMsg");
-    (prefillEmail?pw:em).focus();
-    const go=async()=>{
-      const email=(em.value||"").trim();
-      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !email.toLowerCase().endsWith("@"+DOMAIN)){ msg.style.color="#c0392b"; msg.textContent="Enter your @"+DOMAIN+" email."; return; }
-      const code=pw.value||""; if(!code){ msg.style.color="#c0392b"; msg.textContent="Enter the team passcode."; return; }
-      btn.disabled=true; msg.style.color="#5a616a"; msg.textContent="Checking…";
-      const { error } = await sb.auth.signInWithPassword({ email: SHARED_EMAIL, password: code });
-      btn.disabled=false;
-      if(error){ msg.style.color="#c0392b"; msg.textContent=/invalid/i.test(error.message)?"Wrong passcode — try again.":error.message; return; }
-      try{ localStorage.setItem("renmad_user_email", email); }catch(e){}
-      CURRENT_EMAIL=email; proceed();
-    };
-    btn.onclick=go; pw.onkeydown=(e)=>{ if(e.key==="Enter") go(); }; em.onkeydown=(e)=>{ if(e.key==="Enter") pw.focus(); };
+  }
+  // Validate the Dispatch Center token → the signed-in colleague's email, or null.
+  async function validateDispatch(token){
+    if(!token || !window.DC_SUPA_URL || !window.DC_SUPA_ANON) return null;
+    try{
+      const r=await fetch(window.DC_SUPA_URL+"/auth/v1/user",{ headers:{ apikey:window.DC_SUPA_ANON, Authorization:"Bearer "+token } });
+      if(r.ok){ const j=await r.json(); return (j&&j.email)||null; }
+    }catch(e){}
+    return null;
   }
   function hideOverlay(){ ov.style.display="none"; }
 
@@ -96,8 +87,7 @@
   function userChip(email){
     let c=document.getElementById("cloChip");
     if(!c){ c=document.createElement("div"); c.id="cloChip"; c.style.cssText="position:fixed;bottom:10px;left:12px;z-index:60;background:#fff;border:1px solid #e6e8ec;border-radius:20px;padding:5px 10px;font:600 12px 'Open Sans',Arial;color:#5a616a;box-shadow:0 2px 10px rgba(0,0,0,.08);display:flex;gap:8px;align-items:center"; document.body.appendChild(c); }
-    c.innerHTML='👤 '+esc(email)+' <a href="#" id="cloOut" style="color:#E0392B;text-decoration:none;font-weight:700">Sign out</a>';
-    document.getElementById("cloOut").onclick=(e)=>{ e.preventDefault(); try{ localStorage.removeItem("renmad_user_email"); }catch(x){} sb.auth.signOut(); };
+    c.innerHTML='👤 '+esc(email)+' <a href="'+esc(window.DC_TOOLS_URL||"#")+'" id="cloOut" style="color:#E0392B;text-decoration:none;font-weight:700">Tools</a>';
   }
   function subscribeRealtime(){
     try{ sb.channel("agendas-live").on("postgres_changes",{event:"*",schema:"public",table:"agendas"}, async ()=>{ await refreshCloud(); if(view && view.type==="home") render(); }).subscribe(); }catch(e){}
@@ -116,12 +106,17 @@
   // ── boot ──────────────────────────────────────────────────────────────────
   async function start(){
     showLoading("Loading…");
-    let session=null;
-    try{ session=(await sb.auth.getSession()).data.session; }catch(e){}
-    let savedEmail=""; try{ savedEmail=localStorage.getItem("renmad_user_email")||""; }catch(e){}
-    if(session && savedEmail){ CURRENT_EMAIL=savedEmail; proceed(); }
-    else { showLogin(savedEmail); }
+    // Local dev bypass: run straight in on localhost (no Dispatch token to pass).
+    const host=location.hostname;
+    if(host==="localhost" || host==="127.0.0.1" || host===""){ CURRENT_EMAIL="local@ata.email"; proceed(); return; }
+    // Otherwise require a valid Dispatch Center token (added by the Tools tile).
+    const token=new URLSearchParams(location.search).get("dc_token")||"";
+    const email=await validateDispatch(token);
+    if(!email){ showWall(); return; }
+    CURRENT_EMAIL=email;
+    try{ localStorage.setItem("renmad_user_email", email); }catch(e){}
+    try{ const u=new URL(location.href); u.searchParams.delete("dc_token"); history.replaceState(null,"",u.toString()); }catch(e){}  // tidy the URL
+    proceed();
   }
-  sb.auth.onAuthStateChange((event)=>{ if(event==="SIGNED_OUT"){ location.reload(); } });
   start();
 })();
