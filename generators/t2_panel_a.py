@@ -173,6 +173,7 @@ def generate(session: dict, theme: dict, language: str = "es",
     text_draws = []
     text_els   = []
     logo_els   = []   # company logos → separate resizable PPTX picture shapes
+    photo_els  = []   # speaker photos → movable, re-croppable PPTX picture shapes
 
     canvas = _build_bg(bg_image, theme_rgb)
     grad   = _dark_gradient(W, SPLIT_Y, alpha_max=215)
@@ -302,18 +303,28 @@ def generate(session: dict, theme: dict, language: str = "es",
         cx = i * col_w + col_w // 2
         tw = col_w - 60; tx = cx - tw // 2
 
-        # Photo / silhouette
+        # Photo / silhouette. Real photos are NOT baked into the background —
+        # they are pasted in Phase 2 for the PNG and become movable,
+        # re-croppable picture shapes in the PPTX.
+        photo = None
         if spk.get("photo"):
             try:
                 photo = make_circular(spk["photo"].convert("RGBA"), CIRCLE_D,
                                       border_color=theme_rgb, border_width=BORDER_W)
             except Exception:
-                photo = _silhouette(CIRCLE_D, theme_rgb, border_color=theme_rgb, bw=BORDER_W)
+                photo = None
+        if photo is not None:
+            sd = CIRCLE_D + BORDER_W   # outline centred on edge → outer Ø matches PNG
+            photo_els.append({'pil': photo,
+                              'px': cx - photo.width // 2,
+                              'py': SPLIT_Y - photo.height // 2,
+                              'x': cx - sd / 2, 'y': SPLIT_Y - sd / 2,
+                              'w': sd, 'h': sd, 'src': spk["photo"]})
         else:
-            photo = _silhouette(CIRCLE_D, theme_rgb, border_color=theme_rgb, bw=BORDER_W)
-        canvas.paste(photo,
-                     (cx - photo.width // 2, SPLIT_Y - photo.height // 2),
-                     mask=photo)
+            sil = _silhouette(CIRCLE_D, theme_rgb, border_color=theme_rgb, bw=BORDER_W)
+            canvas.paste(sil,
+                         (cx - sil.width // 2, SPLIT_Y - sil.height // 2),
+                         mask=sil)
 
         # Logo pill — collected here; pasted in Phase 2 (PNG) / added as PPTX shape
         if pill is not None:
@@ -381,7 +392,9 @@ def generate(session: dict, theme: dict, language: str = "es",
     # ── PPTX snapshot: all shapes + photos, ZERO session text ────────────────
     pptx_canvas = canvas.copy()
 
-    # ── Phase 2: session text + logo pills for PNG ───────────────────────────
+    # ── Phase 2: speaker photos, logo pills + session text for PNG ───────────
+    for pe in photo_els:
+        canvas.paste(pe['pil'], (pe['px'], pe['py']), mask=pe['pil'])
     for le in logo_els:
         canvas.paste(le['pill'], (le['x'], le['y']), mask=le['pill'])
     for x, y, txt, fnt, col in text_draws:
@@ -389,10 +402,12 @@ def generate(session: dict, theme: dict, language: str = "es",
 
     png_buf = io.BytesIO()
     canvas.save(png_buf, format="PNG", dpi=(150, 150))
-    return _pptx(pptx_canvas, cta_rect, text_els, logo_els), png_buf.getvalue()
+    return (_pptx(pptx_canvas, cta_rect, text_els, logo_els, photo_els, theme_rgb),
+            png_buf.getvalue())
 
 
-def _pptx(img, cta_rect=None, text_els=None, logo_els=None):
+def _pptx(img, cta_rect=None, text_els=None, logo_els=None,
+          photo_els=None, theme_rgb=None):
     from pptx import Presentation
     from pptx.util import Emu, Pt
     from pptx.dml.color import RGBColor
@@ -409,6 +424,16 @@ def _pptx(img, cta_rect=None, text_els=None, logo_els=None):
     buf = io.BytesIO(); img.save(buf, format="PNG"); buf.seek(0)
     slide.shapes.add_picture(buf, 0, 0, px(W), px(H))
 
+    # Speaker photos — movable picture shapes; Crop tool re-frames the face
+    from utils.pptx_editable import add_shaped_picture
+    for pe in (photo_els or []):
+        try:
+            add_shaped_picture(slide, pe['src'], pe['x'], pe['y'],
+                               pe['w'], pe['h'], shape="ellipse",
+                               border_rgb=theme_rgb, border_px=BORDER_W)
+        except Exception:
+            pass
+
     # Editable text boxes — text only appears here (no image doubling)
     for el in (text_els or []):
         _w, _h = el.get('w', 400), el.get('h', 60)
@@ -423,8 +448,10 @@ def _pptx(img, cta_rect=None, text_els=None, logo_els=None):
         p.alignment = PP_ALIGN.CENTER if el.get('center') else PP_ALIGN.LEFT
         run = p.add_run()
         run.text = el['text']
-        run.font.size = Pt(el.get('size', 20))
+        # canvas px → pt at 96 dpi, so PPTX text matches the PNG layout
+        run.font.size = Pt(el.get('size', 20) * 0.75)
         run.font.bold = el.get('bold', False)
+        run.font.name = "Montserrat" if el.get('bold') else "Inter"
         c = el.get('color', (255, 255, 255))
         run.font.color.rgb = RGBColor(int(c[0]), int(c[1]), int(c[2]))
 

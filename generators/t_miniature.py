@@ -248,14 +248,22 @@ def _sil_square(d, theme_rgb):
 # ── PPTX builder ─────────────────────────────────────────────────────────────
 
 def _build_pptx(bg_png_bytes: bytes,
-                logo_placements: list[tuple]) -> bytes:
+                logo_placements: list[tuple],
+                photo_els: list | None = None,
+                text_els:  list | None = None,
+                theme_rgb: tuple | None = None) -> bytes:
     """Create a PPTX with:
-       • Full-slide background PNG (everything except logos, baked in)
+       • Full-slide background PNG (art only — no photos, logos or text)
+       • Each speaker photo as a movable, re-croppable picture shape
        • Each logo as a separate, resizable/moveable picture shape
+       • Title and date/time as editable text boxes
     Returns raw PPTX bytes.
     """
     from pptx import Presentation
-    from pptx.util import Emu
+    from pptx.util import Emu, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from utils.pptx_editable import add_shaped_picture, add_picture_el
 
     prs = Presentation()
     prs.slide_width  = Emu(W * EMU_PX)
@@ -263,10 +271,28 @@ def _build_pptx(bg_png_bytes: bytes,
 
     slide = prs.slides.add_slide(prs.slide_layouts[6])   # blank layout
 
-    # ── Background (full canvas without logos) ────────────────────────────────
+    # ── Background (full canvas without photos/logos/text) ────────────────────
     bg_io = io.BytesIO(bg_png_bytes)
     slide.shapes.add_picture(bg_io, 0, 0,
                              prs.slide_width, prs.slide_height)
+
+    # ── Speaker photos — movable shapes; Crop tool re-frames the face ─────────
+    for pe in (photo_els or []):
+        try:
+            if pe.get('kind') == 'circle':
+                add_shaped_picture(slide, pe['src'], pe['x'], pe['y'],
+                                   pe['w'], pe['h'], shape="ellipse",
+                                   border_rgb=theme_rgb, border_px=BORDER_W)
+            elif pe.get('kind') == 'square':
+                add_shaped_picture(slide, pe['src'], pe['x'], pe['y'],
+                                   pe['w'], pe['h'], shape="roundRect",
+                                   radius_px=pe.get('radius', PHOTO_R),
+                                   border_rgb=theme_rgb, border_px=BORDER_W)
+            else:   # rembg cutout — already transparent, add as plain picture
+                add_picture_el(slide, pe['pil'], pe['x'], pe['y'],
+                               pe['w'], pe['h'])
+        except Exception:
+            pass
 
     # ── Logo pills — individual resizable shapes ──────────────────────────────
     for lx, ly, pill in logo_placements:
@@ -278,6 +304,28 @@ def _build_pptx(bg_png_bytes: bytes,
             Emu(lx * EMU_PX), Emu(ly * EMU_PX),
             Emu(pill.width * EMU_PX), Emu(pill.height * EMU_PX),
         )
+
+    # ── Editable text boxes (title, date/time pills) ──────────────────────────
+    for el in (text_els or []):
+        _w, _h = el.get('w', 400), el.get('h', 60)
+        if _w <= 0 or _h <= 0 or not el.get('text'):
+            continue
+        txBox = slide.shapes.add_textbox(
+            Emu(int(el['x'] * EMU_PX)), Emu(int(el['y'] * EMU_PX)),
+            Emu(int(_w * EMU_PX)), Emu(int(_h * EMU_PX)))
+        txBox.fill.background(); txBox.line.fill.background()
+        tf = txBox.text_frame
+        tf.word_wrap = el.get('wrap', False)
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER if el.get('center') else PP_ALIGN.LEFT
+        run = p.add_run()
+        run.text = el['text']
+        # canvas px → pt at 96 dpi, so PPTX text matches the PNG layout
+        run.font.size = Pt(el.get('size', 20) * 0.75)
+        run.font.bold = el.get('bold', False)
+        run.font.name = "Montserrat" if el.get('bold') else "Inter"
+        c = el.get('color', (255, 255, 255))
+        run.font.color.rgb = RGBColor(int(c[0]), int(c[1]), int(c[2]))
 
     out = io.BytesIO()
     prs.save(out)
@@ -320,6 +368,10 @@ def generate(
                  mask=overlay.split()[3])
     draw = ImageDraw.Draw(canvas)
 
+    text_draws = []   # (x, y, text, font, fill) → PNG only (Phase 2)
+    text_els   = []   # editable PPTX text boxes
+    photo_els  = []   # speaker photos → movable PPTX picture shapes
+
     # Top accent bar
     draw.rectangle([0, 0, W, 5], fill=theme_rgb)
 
@@ -340,6 +392,7 @@ def generate(
     # Respect explicit '\n' line breaks (preserved by wrap_title).
     title_text = session.get("title", "").upper()
     title_w    = W - 160
+    title_size = 52
     title_f    = _f("heavy", 52)
     t_lines    = wrap_title(draw, title_text, title_f, title_w, max_lines=4)
     # If we got more lines than wanted (truncation), step the font down until
@@ -352,18 +405,26 @@ def generate(
         if len(all_lines) <= 3:
             title_f = f_try
             t_lines = all_lines
+            title_size = _size
             break
     else:
         # Last resort: keep min font and render every line we got (no truncation)
         title_f = _f("heavy", 28)
         t_lines = wrap_title(draw, title_text, title_f, title_w, max_lines=20)
+        title_size = 28
 
     ty = TITLE_TOP
+    title_start_y = ty
     for line in t_lines:
         lb = draw.textbbox((0, 0), line, font=title_f)
-        draw.text(((W - lb[2]) // 2, ty), line, font=title_f, fill=(255, 255, 255))
+        text_draws.append(((W - lb[2]) // 2, ty, line, title_f, (255, 255, 255)))
         ty += lb[3] + 8
     ty += 16
+    if title_text:
+        text_els.append({'x': 80, 'y': title_start_y, 'w': title_w,
+                         'h': max(ty - title_start_y, 50),
+                         'text': title_text, 'size': title_size, 'bold': True,
+                         'color': (255, 255, 255), 'center': True, 'wrap': True})
 
     # ── Date / time pills (centred) ───────────────────────────────────────────
     dt_f       = _f("bold", 26)
@@ -383,7 +444,11 @@ def generate(
         for (txt, bg_col), pw in zip(pill_items, pill_ws):
             draw.rounded_rectangle([rx, ty, rx + pw, ty + pill_h],
                                    radius=6, fill=bg_col)
-            draw.text((rx + pad_p, ty + pad_p), txt, font=dt_f, fill=(255, 255, 255))
+            text_draws.append((rx + pad_p, ty + pad_p, txt, dt_f, (255, 255, 255)))
+            text_els.append({'x': rx + pad_p, 'y': ty + pad_p,
+                             'w': pw, 'h': pill_h,
+                             'text': txt, 'size': 26, 'bold': True,
+                             'color': (255, 255, 255)})
             rx += pw + gap_p
         ty += pill_h
     # ty = bottom edge of date/time area
@@ -421,7 +486,10 @@ def generate(
             if cutout is not None:
                 px = cx - cutout.width // 2
                 py = SPLIT_Y - person_h
-                canvas.paste(cutout, (px, py), mask=cutout)
+                photo_els.append({'pil': cutout, 'px': px, 'py': py,
+                                  'x': px, 'y': py,
+                                  'w': cutout.width, 'h': cutout.height,
+                                  'kind': 'cutout'})
             else:
                 sil_w = max(60, col_w - 40)
                 sil   = _sil_person(sil_w, person_h, theme_rgb)
@@ -464,22 +532,29 @@ def generate(
         for i, spk in enumerate(speakers):
             cx = start_x + i * (photo_total + PHOTO_GAP) + photo_total // 2
 
-            if template == "C":
-                if spk.get("photo"):
-                    try:   ph_img = _photo_square(spk["photo"], photo_d, theme_rgb)
-                    except: ph_img = _sil_square(photo_d, theme_rgb)
-                else:
-                    ph_img = _sil_square(photo_d, theme_rgb)
-            else:   # "A"
-                if spk.get("photo"):
-                    try:   ph_img = _photo_circle(spk["photo"], photo_d, theme_rgb)
-                    except: ph_img = _sil_circle(photo_d, theme_rgb)
-                else:
-                    ph_img = _sil_circle(photo_d, theme_rgb)
-
-            px = cx - ph_img.width  // 2
-            py = photo_cy - ph_img.height // 2
-            canvas.paste(ph_img, (px, py), mask=ph_img)
+            # Real photos are NOT baked in — they are pasted in Phase 2 for the
+            # PNG and become movable, re-croppable picture shapes in the PPTX.
+            ph_img = None
+            if spk.get("photo"):
+                try:
+                    ph_img = (_photo_square if template == "C" else _photo_circle)(
+                        spk["photo"], photo_d, theme_rgb)
+                except Exception:
+                    ph_img = None
+            if ph_img is not None:
+                px = cx - ph_img.width  // 2
+                py = photo_cy - ph_img.height // 2
+                sd = photo_d + BORDER_W   # outline centred → outer edge matches PNG
+                photo_els.append({'pil': ph_img, 'px': px, 'py': py,
+                                  'x': px + BORDER_W / 2, 'y': py + BORDER_W / 2,
+                                  'w': sd, 'h': sd, 'src': spk["photo"],
+                                  'kind': 'square' if template == "C" else 'circle',
+                                  'radius': PHOTO_R + BORDER_W / 2})
+            else:
+                sil = (_sil_square if template == "C" else _sil_circle)(photo_d, theme_rgb)
+                canvas.paste(sil,
+                             (cx - sil.width // 2, photo_cy - sil.height // 2),
+                             mask=sil)
 
         # White strip + accent line
         draw.rectangle([0, SPLIT_Y, W, H], fill=(255, 255, 255))
@@ -493,14 +568,19 @@ def generate(
             lx = max(8, min(W - pill.width - 8, cx - pill.width // 2))
             logo_placements.append((lx, logo_y, pill))
 
-    # ── PPTX: background WITHOUT logos (so logos are separate/editable) ───────
+    # ── PPTX: background WITHOUT photos/logos/text (all separate/editable) ────
     bg_buf = io.BytesIO()
     canvas.save(bg_buf, format="PNG")
-    pptx_bytes = _build_pptx(bg_buf.getvalue(), logo_placements)
+    pptx_bytes = _build_pptx(bg_buf.getvalue(), logo_placements,
+                             photo_els, text_els, theme_rgb)
 
-    # ── PNG: paste logos onto canvas ──────────────────────────────────────────
+    # ── PNG: paste photos + logos, draw text onto canvas ──────────────────────
+    for pe in photo_els:
+        canvas.paste(pe['pil'], (pe['px'], pe['py']), mask=pe['pil'])
     for lx, ly, pill in logo_placements:
         canvas.paste(pill, (lx, ly), mask=pill)
+    for x, y, txt, fnt, col in text_draws:
+        draw.text((x, y), txt, font=fnt, fill=col)
 
     png_buf = io.BytesIO()
     canvas.save(png_buf, format="PNG", dpi=(96, 96))

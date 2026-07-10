@@ -28,12 +28,8 @@ W, H = 1200, 630
 
 # Layout
 LEFT_PAD       = 50
-RIGHT_RING_CX  = 955
-RIGHT_RING_CY  = H // 2
-RING_DIAMETER  = 320          # smaller → more room for the title
-RING_BORDER_1  = 7            # accent ring
-RING_GAP       = 4            # dark spacer
-RING_BORDER_2  = 7            # outer theme ring
+# The right side is deliberately left clear (stripes only): Ingo composites the
+# sharer's LinkedIn photo there at share time, at its own position/size.
 
 # Skew for the diagonal stripes (~14 deg, same as the HTML preview)
 _STRIPE_SKEW_DEG = 14
@@ -549,35 +545,6 @@ def _draw_host_block(canvas: Image.Image, draw: ImageDraw.ImageDraw,
         canvas.paste(logo_r, (lx, ly), mask=logo_r)
 
 
-# ── Right-side empty circle (LinkedIn pic placeholder for Ingo) ──────────────
-
-def _draw_empty_ring(canvas: Image.Image, theme_rgb: tuple) -> None:
-    """
-    Draw the right-side double-ring frame with an EMPTY light-grey circle inside.
-    Ingo overlays the sharer's LinkedIn photo onto this placeholder at share time,
-    so we deliberately leave it blank.
-    """
-    accent = tuple(min(255, int(c * 1.30) + 30) for c in theme_rgb)
-    spacer = _darken(theme_rgb, 0.22)
-
-    inner_d = RING_DIAMETER
-    full_d  = inner_d + (RING_BORDER_1 + RING_GAP + RING_BORDER_2) * 2
-    cx, cy  = RIGHT_RING_CX, RIGHT_RING_CY
-    x0      = cx - full_d // 2
-    y0      = cy - full_d // 2
-
-    layers = [
-        (full_d,                                    theme_rgb),  # outermost ring
-        (full_d - RING_BORDER_2 * 2,                spacer),     # gap
-        (full_d - (RING_BORDER_2 + RING_GAP) * 2,   accent),     # accent ring
-        (inner_d,                                   (220, 220, 220, 255)),  # empty fill
-    ]
-    d = ImageDraw.Draw(canvas)
-    for size, fill in layers:
-        off = (full_d - size) // 2
-        d.ellipse([x0 + off, y0 + off, x0 + off + size, y0 + off + size], fill=fill)
-
-
 # ── Variant generators ────────────────────────────────────────────────────────
 
 def _render(cta_text: str,
@@ -590,7 +557,8 @@ def _render(cta_text: str,
 
     canvas = _build_background(theme_rgb, background_img)
     _draw_stripes(canvas, theme_rgb)
-    _draw_empty_ring(canvas, theme_rgb)
+    # NOTE: no placeholder ring — Ingo composites the sharer's LinkedIn photo
+    # at its own position, which never matched a pre-drawn circle.
 
     draw = ImageDraw.Draw(canvas, "RGBA")
     bottom_after_cta = _draw_cta_badge(canvas, draw, cta_text, theme_rgb)

@@ -84,6 +84,116 @@ def best_match(needle: str, candidates: list[str]) -> str:
     return "(none)"
 
 
+def _fill_from_url(url: str) -> None:
+    """Scrape a webinar page → fill fields, photo/logo pools and selections.
+
+    Reuses the Reports-page scraper (title, speakers+photos, logos) and adds a
+    best-effort date/time parse from the visible page text. Must run BEFORE
+    the Step-2 widgets are instantiated (it sets their session_state keys).
+    """
+    import requests
+    from report_core.scraper.scrape import scrape_webinar, UA
+
+    if url.startswith("www."):
+        url = "https://" + url
+    html = requests.get(url, headers=UA, timeout=30).text
+    data = scrape_webinar(url, html=html)
+
+    st.session_state["session_title"] = data.get("title", "")
+    st.session_state["cta_url"]       = url
+
+    # Language: the scraper's guess defaults to EN — override with a simple
+    # Spanish check on the title (accents / very common ES words)
+    _lang  = data.get("language_guess", "")
+    _title = (data.get("title") or "").lower()
+    if _lang == "en" and re.search(
+            r"[ñáéíóú¿¡]|\b(el|la|los|las|del|para|qué|como|cómo|nuevo|nueva|"
+            r"mercado|almacenamiento|energía|españa)\b", _title):
+        _lang = "es"
+    st.session_state["_pending_language"] = _lang
+
+    # Best-effort date/time from the visible page text
+    plain = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
+    plain = re.sub(r"<[^>]+>", " ", plain)
+    plain = re.sub(r"\s+", " ", plain)
+    mdate = re.search(
+        r"\b\d{1,2}\s+(?:de\s+)?(?:enero|febrero|marzo|abril|mayo|junio|julio|"
+        r"agosto|septiembre|octubre|noviembre|diciembre|january|february|march|"
+        r"april|may|june|july|august|september|october|november|december)"
+        r"(?:\s+(?:de\s+)?\d{4})?\b", plain, re.I)
+    mtime = re.search(
+        r"\b\d{1,2}[:.]\d{2}\s*(?:h(?:rs)?\b|am\b|pm\b|ce[s]?t\b)?", plain, re.I)
+    if mdate:
+        st.session_state["date_str"] = mdate.group(0).strip()
+    if mtime:
+        st.session_state["time_str"] = mtime.group(0).strip()
+
+    def _dl(u):
+        try:
+            r = requests.get(u, headers=UA, timeout=20)
+            if r.ok and len(r.content) > 100:
+                return r.content
+        except Exception:
+            pass
+        return None
+
+    ph_pool, lg_pool = {}, {}
+
+    spks = data.get("speakers", [])[:6]
+    st.session_state["n"] = max(len(spks), 1)
+    for i in range(7):
+        for k in (f"name_{i}", f"title_{i}", f"company_{i}"):
+            st.session_state[k] = ""
+        st.session_state[f"mod_{i}"]  = False
+        st.session_state[f"psel_{i}"] = "(none)"
+        st.session_state[f"lsel_{i}"] = "(none)"
+    for i, sp in enumerate(spks):
+        st.session_state[f"name_{i}"]    = sp.get("name", "")
+        st.session_state[f"title_{i}"]   = sp.get("role", "")
+        st.session_state[f"company_{i}"] = sp.get("company", "")
+        st.session_state[f"mod_{i}"]     = bool(sp.get("is_moderator"))
+        pu = sp.get("photo")
+        if pu:
+            b = _dl(pu)
+            if b:
+                fn = os.path.basename(pu.split("?")[0])
+                ph_pool[fn] = b
+                st.session_state[f"psel_{i}"] = fn
+
+    for lu in data.get("logos", []):
+        if lu.lower().endswith(".svg"):
+            continue                      # PIL can't render SVG
+        _bn = os.path.basename(lu.split("?")[0]).lower()
+        # Skip the webinar's own hero/thumbnail images that slip past the scraper
+        if any(t in _bn for t in ("miniatura", "thumb", "banner", "webinar", "hero")):
+            continue
+        b = _dl(lu)
+        if b:
+            lg_pool[os.path.basename(lu.split("?")[0])] = b
+
+    # Match company logos to speakers by company name
+    for i, sp in enumerate(spks):
+        co = (sp.get("company") or "").strip()
+        if co:
+            m = best_match(co, list(lg_pool.keys()))
+            if m != "(none)":
+                st.session_state[f"lsel_{i}"] = m
+
+    # Fresh project: replace pools, drop any editing context / loaded background
+    st.session_state["_photo_pool_bytes"]   = ph_pool
+    st.session_state["_logo_pool_bytes"]    = lg_pool
+    st.session_state["_suppress_automatch"] = True
+    st.session_state.pop("_editing_slide_id", None)
+    st.session_state.pop("_editing_label",    None)
+    st.session_state.pop("_loaded_bg",        None)
+
+    extra = " (page has more than 6 — first 6 loaded)" if len(data.get("speakers", [])) > 6 else ""
+    st.session_state["_load_toast"] = (
+        f"✅ Loaded from page — {len(spks)} speaker(s){extra}, "
+        f"{len(ph_pool)} photo(s), {len(lg_pool)} logo(s)"
+    )
+
+
 # ── Load-saved-project request handler ───────────────────────────────────────
 # Runs BEFORE any widgets so session_state is fully populated before the
 # sidebar and main body render — no second st.rerun() needed.
@@ -175,13 +285,12 @@ if "load_request" in st.session_state:
         if _ph_bytes2 or _lg_bytes2:
             st.session_state["_expand_photos_expander"] = True
 
-        # ── Restore slide preview ─────────────────────────────────────────────
-        st.session_state.pop("last_linkedin_png",  None)
-        st.session_state.pop("last_linkedin_pptx", None)
-        st.session_state.pop("last_mini_png",       None)
-        st.session_state.pop("last_mini_pptx",      None)
-        st.session_state["last_png"]  = _data["png_bytes"]  if _data.get("png_bytes")  else st.session_state.pop("last_png",  None)
-        st.session_state["last_pptx"] = _data["pptx_bytes"] if _data.get("pptx_bytes") else st.session_state.pop("last_pptx", None)
+        # ── Restore slide preview (saved bytes = the LinkedIn version) ────────
+        st.session_state.pop("last_mini_png",  None)
+        st.session_state.pop("last_mini_pptx", None)
+        st.session_state.pop("last_ingo_pack", None)
+        st.session_state["last_linkedin_png"]  = _data["png_bytes"]  if _data.get("png_bytes")  else st.session_state.pop("last_linkedin_png",  None)
+        st.session_state["last_linkedin_pptx"] = _data["pptx_bytes"] if _data.get("pptx_bytes") else st.session_state.pop("last_linkedin_pptx", None)
 
         st.session_state["_editing_slide_id"] = _sid
         st.session_state["_editing_label"]    = _data.get("label", "")
@@ -192,6 +301,13 @@ if "load_request" in st.session_state:
 
     except Exception as _e:
         st.session_state["_load_error_msg"] = f"Could not load slide: {_e}"
+
+# Apply a language chosen by "Fill from URL" BEFORE the sidebar widget renders
+# (a widget's state key can't be set after the widget is instantiated).
+if "_pending_language" in st.session_state:
+    _pl = st.session_state.pop("_pending_language")
+    if _pl in ("es", "en", "it", "pl"):
+        st.session_state["language"] = _pl
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
@@ -321,9 +437,32 @@ with st.expander(_gallery_label, expanded=bool(editing_id and not saved)):
 
 st.divider()
 
-# ── Step 1: Paste & Parse ─────────────────────────────────────────────────────
+# ── Step 1: Fill from URL, or Paste & Parse ───────────────────────────────────
 
-st.subheader("1. Paste your session info — then click Parse & fill")
+st.subheader("1. Fill from your webinar page — or paste the info below")
+st.caption(
+    "Paste the webinar page URL (my.atainsights.com) and click **Fetch ⤵** — "
+    "title, speakers, photos and company logos are pulled automatically, and "
+    "the page URL becomes the registration link. Review the fields after."
+)
+_uc1, _uc2 = st.columns([4, 1])
+webinar_url = _uc1.text_input(
+    "Webinar URL", key="webinar_url", label_visibility="collapsed",
+    placeholder="https://my.atainsights.com/webinar/…",
+)
+if _uc2.button("Fetch ⤵", type="primary", use_container_width=True, key="fetch_btn"):
+    _wu = (webinar_url or "").strip()
+    if not _wu.lower().startswith(("http://", "https://", "www.")):
+        st.warning("Paste the full webinar page URL first.")
+    else:
+        with st.spinner("Reading the webinar page…"):
+            try:
+                _fill_from_url(_wu)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not read that page: {e}")
+
+st.markdown("")
 st.caption(
     "Paste any agenda text below. Click **Parse & fill ▶** and the fields in "
     "Step 2 will be filled in automatically. "
@@ -658,14 +797,13 @@ with bg_col_upload:
 # ── Generate ──────────────────────────────────────────────────────────────────
 
 st.markdown("")
-gc1, gc2, gc3, gc4, gc5 = st.columns(5)
-btn_slide    = gc1.button("🎨 Generate Slide",     type="primary", use_container_width=True)
-btn_linkedin = gc2.button("💼 Generate LinkedIn",  type="primary", use_container_width=True)
-btn_mini     = gc3.button("🖼️ Generate Miniature", type="primary", use_container_width=True)
-btn_ingo     = gc4.button("🌐 Generate Ingo",      type="primary", use_container_width=True)
-btn_all      = gc5.button("⚡ Generate All",        type="primary", use_container_width=True)
+gc1, gc2, gc3, gc4 = st.columns(4)
+btn_linkedin = gc1.button("💼 Generate LinkedIn",  type="primary", use_container_width=True)
+btn_mini     = gc2.button("🖼️ Generate Miniature", type="primary", use_container_width=True)
+btn_ingo     = gc3.button("🌐 Generate Ingo",      type="primary", use_container_width=True)
+btn_all      = gc4.button("⚡ Generate All",        type="primary", use_container_width=True)
 
-if btn_slide or btn_linkedin or btn_mini or btn_ingo or btn_all:
+if btn_linkedin or btn_mini or btn_ingo or btn_all:
     if not session_title and not speakers_text:
         st.warning("Add at least a session title or one speaker first.")
     else:
@@ -695,7 +833,6 @@ if btn_slide or btn_linkedin or btn_mini or btn_ingo or btn_all:
 
         with st.spinner(spinner_msg):
             try:
-                do_slide    = btn_slide    or btn_all
                 do_linkedin = btn_linkedin or btn_all
                 do_mini     = btn_mini     or btn_all
                 do_ingo     = btn_ingo     or btn_all
@@ -712,13 +849,7 @@ if btn_slide or btn_linkedin or btn_mini or btn_ingo or btn_all:
                 # Mark that data is ready (used by Save as a "something to save" flag)
                 st.session_state["_last_form"]     = {"_generated": True}
 
-                # ── Slide ────────────────────────────────────────────────────
-                if do_slide:
-                    pb, pgb = gen(session, theme, language, renmad_logo, bg_image, ata_logo)
-                    st.session_state["last_pptx"] = pb
-                    st.session_state["last_png"]  = pgb
-
-                # ── LinkedIn (same generator, CTA stripped) ───────────────────
+                # ── LinkedIn (CTA stripped) ───────────────────────────────────
                 if do_linkedin:
                     session_li = {**session, "cta_url": ""}
                     pb_li, pgb_li = gen(session_li, theme, language,
@@ -750,50 +881,19 @@ if btn_slide or btn_linkedin or btn_mini or btn_ingo or btn_all:
 
 # ── Preview & downloads ───────────────────────────────────────────────────────
 
-pptx_bytes    = st.session_state.get("last_pptx")
-png_bytes     = st.session_state.get("last_png")
 li_pptx_bytes = st.session_state.get("last_linkedin_pptx")
 li_png_bytes  = st.session_state.get("last_linkedin_png")
 mini_png      = st.session_state.get("last_mini_png")
 mini_pptx     = st.session_state.get("last_mini_pptx")
 ingo_pack     = st.session_state.get("last_ingo_pack") or {}
 
-has_any = any([png_bytes, li_png_bytes, mini_png, ingo_pack])
+has_any = any([li_png_bytes, mini_png, ingo_pack])
 
 if has_any:
     st.divider()
-    tab_slide, tab_li, tab_mini, tab_ingo = st.tabs(
-        ["🎨 Slide", "💼 LinkedIn", "🖼️ Miniature", "🌐 Ingo"]
+    tab_li, tab_mini, tab_ingo = st.tabs(
+        ["💼 LinkedIn", "🖼️ Miniature", "🌐 Ingo"]
     )
-
-    # ── Slide tab ─────────────────────────────────────────────────────────────
-    with tab_slide:
-        if png_bytes:
-            st.image(png_bytes, use_container_width=True)
-            c1, c2, c3 = st.columns(3)
-            c1.download_button(
-                "Download PNG", data=png_bytes,
-                file_name=f"RENMAD_{theme_choice}_slide.png",
-                mime="image/png", use_container_width=True,
-            )
-            if pptx_bytes:
-                c2.download_button(
-                    "Download PPTX", data=pptx_bytes,
-                    file_name=f"RENMAD_{theme_choice}_slide.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                    use_container_width=True,
-                )
-                c3.download_button(
-                    "Download both (ZIP)",
-                    data=make_zip({
-                        f"RENMAD_{theme_choice}_slide.png":  png_bytes,
-                        f"RENMAD_{theme_choice}_slide.pptx": pptx_bytes,
-                    }),
-                    file_name=f"RENMAD_{theme_choice}_slide.zip",
-                    mime="application/zip", use_container_width=True,
-                )
-        else:
-            st.caption("Click **🎨 Generate Slide** or **⚡ Generate All** to create this.")
 
     # ── LinkedIn tab ──────────────────────────────────────────────────────────
     with tab_li:
@@ -879,14 +979,12 @@ if has_any:
                 file_name=f"RENMAD_{theme_choice}_ingo_pack.zip",
                 mime="application/zip", use_container_width=True,
             )
-            st.caption("Templates intentionally have an empty circle — Ingo overlays the sharer's LinkedIn picture there.")
+            st.caption("Ingo overlays the sharer's LinkedIn picture on the right side automatically at share time.")
         else:
             st.caption("Click **🌐 Generate Ingo** or **⚡ Generate All** to create the speaker + attendee LinkedIn templates.")
 
     # ── Download ALL as ZIP ───────────────────────────────────────────────────
     all_files = {}
-    if png_bytes:     all_files[f"RENMAD_{theme_choice}_slide.png"]      = png_bytes
-    if pptx_bytes:    all_files[f"RENMAD_{theme_choice}_slide.pptx"]     = pptx_bytes
     if li_png_bytes:  all_files[f"RENMAD_{theme_choice}_linkedin.png"]   = li_png_bytes
     if li_pptx_bytes: all_files[f"RENMAD_{theme_choice}_linkedin.pptx"]  = li_pptx_bytes
     if mini_png:      all_files[f"RENMAD_{theme_choice}_miniature.png"]  = mini_png
@@ -903,8 +1001,8 @@ if has_any:
             use_container_width=True,
         )
 
-    # ── Save / Update project (tied to the Slide version) ────────────────────
-    if png_bytes:
+    # ── Save / Update project (tied to the LinkedIn version) ─────────────────
+    if li_png_bytes:
         st.divider()
         editing_id = st.session_state.get("_editing_slide_id")
         _lf        = st.session_state.get("_last_form", {})
@@ -973,8 +1071,8 @@ if has_any:
                 language   = st.session_state.get("_last_language", language),
                 template   = st.session_state.get("_last_template", template),
                 form_state = _build_current_form(),
-                png_bytes  = png_bytes,
-                pptx_bytes = pptx_bytes,
+                png_bytes  = li_png_bytes,
+                pptx_bytes = li_pptx_bytes,
                 photos     = _current_photos(),
                 logos      = _current_logos(),
                 bg_image   = _current_bg(),

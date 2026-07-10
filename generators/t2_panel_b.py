@@ -206,6 +206,7 @@ def generate(session: dict, theme: dict, language: str = "es",
     text_draws = []
     text_els   = []
     logo_els   = []   # company logos → separate resizable PPTX picture shapes
+    photo_els  = []   # person cutouts → movable PPTX picture shapes
 
     # ── Phase 1: visual elements ──────────────────────────────────────────────
     canvas = _build_bg(bg_image, theme_rgb)
@@ -351,11 +352,16 @@ def generate(session: dict, theme: dict, language: str = "es",
         cx = i * col_w + col_w // 2
         tw = col_w - 60; tx = cx - tw // 2
 
-        # Silhouette cutout
+        # Silhouette cutout. Real cutouts are NOT baked into the background —
+        # they are pasted in Phase 2 for the PNG (cropped at the white strip)
+        # and become movable picture shapes in the PPTX.
         if cutout is not None:
-            paste_x = cx - cutout.width // 2
-            paste_y = PERSON_BOT - PERSON_H
-            canvas.paste(cutout, (paste_x, paste_y), mask=cutout)
+            paste_x  = cx - cutout.width // 2
+            paste_y  = PERSON_BOT - PERSON_H
+            vis_h    = SPLIT_Y - paste_y          # part visible above the strip
+            visible  = cutout.crop((0, 0, cutout.width, min(vis_h, cutout.height)))
+            photo_els.append({'pil': visible, 'x': paste_x, 'y': paste_y,
+                              'w': visible.width, 'h': visible.height})
         else:
             sil = _person_silhouette(theme_rgb, col_w)
             canvas.paste(sil,
@@ -426,7 +432,9 @@ def generate(session: dict, theme: dict, language: str = "es",
     # ── PPTX snapshot — zero session text ────────────────────────────────────
     pptx_canvas = canvas.copy()
 
-    # ── Phase 2: logo pills + session text for PNG ───────────────────────────
+    # ── Phase 2: cutouts, logo pills + session text for PNG ──────────────────
+    for pe in photo_els:
+        canvas.paste(pe['pil'], (pe['x'], pe['y']), mask=pe['pil'])
     for le in logo_els:
         canvas.paste(le['pill'], (le['x'], le['y']), mask=le['pill'])
     for x, y, txt, fnt, col in text_draws:
@@ -438,10 +446,11 @@ def generate(session: dict, theme: dict, language: str = "es",
 
     png_buf = io.BytesIO()
     canvas.save(png_buf, format="PNG", dpi=(150, 150))
-    return _pptx(pptx_canvas, cta_rect, text_els, logo_els), png_buf.getvalue()
+    return (_pptx(pptx_canvas, cta_rect, text_els, logo_els, photo_els),
+            png_buf.getvalue())
 
 
-def _pptx(img, cta_rect=None, text_els=None, logo_els=None):
+def _pptx(img, cta_rect=None, text_els=None, logo_els=None, photo_els=None):
     from pptx import Presentation
     from pptx.util import Emu, Pt
     from pptx.dml.color import RGBColor
@@ -457,6 +466,14 @@ def _pptx(img, cta_rect=None, text_els=None, logo_els=None):
     buf = io.BytesIO(); img.save(buf, format="PNG"); buf.seek(0)
     slide.shapes.add_picture(buf, 0, 0, px(W), px(H))
 
+    # Person cutouts — movable/resizable picture shapes
+    from utils.pptx_editable import add_picture_el
+    for pe in (photo_els or []):
+        try:
+            add_picture_el(slide, pe['pil'], pe['x'], pe['y'], pe['w'], pe['h'])
+        except Exception:
+            pass
+
     for el in (text_els or []):
         _w, _h = el.get('w', 400), el.get('h', 60)
         if _w <= 0 or _h <= 0 or not el.get('text'):
@@ -469,8 +486,10 @@ def _pptx(img, cta_rect=None, text_els=None, logo_els=None):
         p.alignment = PP_ALIGN.CENTER if el.get('center') else PP_ALIGN.LEFT
         run = p.add_run()
         run.text = el['text']
-        run.font.size = Pt(el.get('size', 20))
+        # canvas px → pt at 96 dpi, so PPTX text matches the PNG layout
+        run.font.size = Pt(el.get('size', 20) * 0.75)
         run.font.bold = el.get('bold', False)
+        run.font.name = "Montserrat" if el.get('bold') else "Inter"
         c = el.get('color', (255, 255, 255))
         run.font.color.rgb = RGBColor(int(c[0]), int(c[1]), int(c[2]))
 
