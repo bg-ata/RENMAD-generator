@@ -27,7 +27,8 @@ def _font(name, size):
 def generate(session: dict, theme: dict, language: str = "es",
              renmad_logo: Image.Image | None = None,
              bg_image:    Image.Image | None = None,
-             ata_logo:    Image.Image | None = None) -> tuple[bytes, bytes]:
+             ata_logo:    Image.Image | None = None,
+             variant:     str = "normal") -> tuple[bytes, bytes]:
 
     strings   = LANGUAGE_STRINGS.get(language, LANGUAGE_STRINGS["es"])
     theme_rgb = tuple(theme["rgb"])
@@ -61,6 +62,18 @@ def generate(session: dict, theme: dict, language: str = "es",
 
     # ── Top accent bar ────────────────────────────────────────────────────────
     draw.rectangle([0, 0, W, 8], fill=theme_rgb)
+
+    # "Grabación disponible" variant — small badge top-left.
+    # T1 has no "free webinar" badge, so we add one consistent with the panel style.
+    if variant == "recording_available":
+        rec_f   = _font("bold", 26)
+        rec_txt = strings.get("recording_available", "Grabación disponible").upper()
+        rb      = draw.textbbox((0, 0), rec_txt, font=rec_f)
+        rpad    = 14
+        draw.rounded_rectangle(
+            [40, 34, 40 + rb[2] + rpad * 2, 34 + rb[3] + rpad * 2],
+            radius=6, fill=theme_rgb)
+        draw.text((40 + rpad, 34 + rpad), rec_txt, font=rec_f, fill=(255, 255, 255))
 
     # ── Left column: photo (Phase 2 for PNG; movable shape in PPTX) ───────────
     col_split  = W // 2   # photo on left half
@@ -192,8 +205,11 @@ def generate(session: dict, theme: dict, language: str = "es",
                          'color': (255, 255, 255), 'center': True})
 
     # Event details: date | time | location
-    parts = [p for p in [session.get("date_str",""), session.get("time_str",""),
-                          session.get("location","")] if p]
+    # "Empezamos pronto" variant replaces the time part.
+    time_part = (strings.get("starting_soon", "Empezamos pronto")
+                 if variant == "starting_soon" else session.get("time_str", ""))
+    parts = [p for p in [session.get("date_str", ""), time_part,
+                          session.get("location", "")] if p]
     detail_y = title_y + 42
     if parts:
         detail = "   |   ".join(parts).upper()

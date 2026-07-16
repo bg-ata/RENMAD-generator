@@ -350,6 +350,17 @@ template = st.sidebar.selectbox(
     key="template",
 )
 
+li_variant = st.sidebar.selectbox(
+    "LinkedIn variant",
+    options=["normal", "starting_soon", "recording_available"],
+    format_func=lambda v: {
+        "normal":              "Promoción (normal)",
+        "starting_soon":       "Empezamos pronto — pre-webinar",
+        "recording_available": "Grabación disponible — recording",
+    }[v],
+    key="li_variant",
+)
+
 with st.sidebar.expander("⚙️ Advanced — override logos"):
     st.caption(
         "Event and ATA Insights logos are loaded **automatically** from the "
@@ -818,7 +829,12 @@ if btn_linkedin or btn_mini or btn_ingo or btn_all:
         }
 
         # Panel generator (Slide + LinkedIn share the same template)
-        if len(sorted_spk) <= 1:
+        # 0 speakers → clean photo-less panel A (no empty speaker strip / silhouette)
+        gen_kwargs = {}
+        if len(sorted_spk) == 0:
+            gen = __import__("generators.t2_panel_a", fromlist=["generate"]).generate
+            gen_kwargs["hide_speakers"] = True
+        elif len(sorted_spk) == 1:
             gen = __import__("generators.t1_speaker", fromlist=["generate"]).generate
         elif template == "A":
             gen = __import__("generators.t2_panel_a", fromlist=["generate"]).generate
@@ -853,7 +869,8 @@ if btn_linkedin or btn_mini or btn_ingo or btn_all:
                 if do_linkedin:
                     session_li = {**session, "cta_url": ""}
                     pb_li, pgb_li = gen(session_li, theme, language,
-                                        renmad_logo, bg_image, ata_logo)
+                                        renmad_logo, bg_image, ata_logo,
+                                        variant=li_variant, **gen_kwargs)
                     st.session_state["last_linkedin_pptx"] = pb_li
                     st.session_state["last_linkedin_png"]  = pgb_li
 

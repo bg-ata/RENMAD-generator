@@ -198,7 +198,8 @@ def _pill_badge(draw, text, font, x, y, bg_color,
 def generate(session: dict, theme: dict, language: str = "es",
              renmad_logo: Image.Image | None = None,
              bg_image:    Image.Image | None = None,
-             ata_logo:    Image.Image | None = None) -> tuple[bytes, bytes]:
+             ata_logo:    Image.Image | None = None,
+             variant:     str = "normal") -> tuple[bytes, bytes]:
 
     strings   = LANGUAGE_STRINGS.get(language, LANGUAGE_STRINGS["es"])
     theme_rgb = tuple(theme["rgb"])
@@ -220,8 +221,11 @@ def generate(session: dict, theme: dict, language: str = "es",
     pad_l = 52; ty = 28
 
     # "WEBINAR GRATUITO" badge — branding, draw in Phase 1
+    # "Grabación disponible" variant swaps the badge text.
     wb_f  = _f("bold", 28)
     badge = strings.get("free_webinar", "WEBINAR GRATUITO")
+    if variant == "recording_available":
+        badge = strings.get("recording_available", "Grabación disponible").upper()
     _, ty = _pill_badge(draw, badge, wb_f, pad_l, ty,
                         bg_color=theme_rgb, text_color=(255, 255, 255))
     ty += 22
@@ -264,8 +268,11 @@ def generate(session: dict, theme: dict, language: str = "es",
                          'color': (255, 255, 255)})
         rx += 14
 
-    if session.get("time_str"):
-        time_text = session["time_str"].upper()
+    if session.get("time_str") or variant == "starting_soon":
+        # "Empezamos pronto" variant replaces the time source before .upper()
+        time_src  = (strings.get("starting_soon", "Empezamos pronto")
+                     if variant == "starting_soon" else session.get("time_str", ""))
+        time_text = time_src.upper()
         time_x0   = rx
         rx, _     = _pill_badge(draw, time_text, dt_f, rx, ty,
                                   bg_color=theme_rgb, shape_only=True)

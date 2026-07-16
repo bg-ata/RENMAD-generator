@@ -14,7 +14,6 @@ Design reference: ingo_preview/ingo_templates_blank.html
 """
 import io
 import re
-import math
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 
@@ -28,19 +27,8 @@ W, H = 1200, 630
 
 # Layout
 LEFT_PAD       = 50
-# The right side is deliberately left clear (stripes only): Ingo composites the
-# sharer's LinkedIn photo there at share time, at its own position/size.
-
-# Skew for the diagonal stripes (~14 deg, same as the HTML preview)
-_STRIPE_SKEW_DEG = 14
-_STRIPE_DX = int(H * math.tan(math.radians(_STRIPE_SKEW_DEG)))   # ≈ 157
-
-# Stripe 1 (theme color, mid-thick): centered around x ≈ 0.84·W
-STRIPE1_W = 110
-STRIPE1_CX_TOP = int(W * 0.84)
-# Stripe 2 (accent, thinner): centered around x ≈ 0.96·W
-STRIPE2_W = 50
-STRIPE2_CX_TOP = int(W * 0.96)
+# The right side is deliberately left clear: Ingo composites the sharer's
+# LinkedIn photo there at share time, at its own position/size.
 
 
 # ── Small helpers ─────────────────────────────────────────────────────────────
@@ -237,26 +225,6 @@ def _build_background(theme_rgb: tuple, background_img: Image.Image | None) -> I
         od.line([(x, 0), (x, H)], fill=(tint[0], tint[1], tint[2], a))
     canvas.paste(overlay, (0, 0), mask=overlay)
     return canvas.convert("RGBA")
-
-
-# ── Diagonal stripes on the right side ────────────────────────────────────────
-
-def _draw_stripes(canvas: Image.Image, theme_rgb: tuple) -> None:
-    accent = tuple(min(255, int(c * 1.35) + 40) for c in theme_rgb)   # lighter tint
-    d = ImageDraw.Draw(canvas, "RGBA")
-
-    def _skewed_poly(cx_top: int, width: int) -> list:
-        half = width // 2
-        cx_bot = cx_top - _STRIPE_DX
-        return [
-            (cx_top - half, 0),
-            (cx_top + half, 0),
-            (cx_bot + half, H),
-            (cx_bot - half, H),
-        ]
-
-    d.polygon(_skewed_poly(STRIPE1_CX_TOP, STRIPE1_W), fill=(*theme_rgb, 245))
-    d.polygon(_skewed_poly(STRIPE2_CX_TOP, STRIPE2_W), fill=(*accent, 235))
 
 
 # ── CTA badge top-left ────────────────────────────────────────────────────────
@@ -556,7 +524,8 @@ def _render(cta_text: str,
     theme_rgb = tuple(theme["rgb"])
 
     canvas = _build_background(theme_rgb, background_img)
-    _draw_stripes(canvas, theme_rgb)
+    # NOTE: right side deliberately left clear — Ingo composites the sharer's
+    #       LinkedIn photo there at share time (diagonal stripes removed).
     # NOTE: no placeholder ring — Ingo composites the sharer's LinkedIn photo
     # at its own position, which never matched a pre-drawn circle.
 

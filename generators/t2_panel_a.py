@@ -162,7 +162,9 @@ def _pill_badge(draw, text, font, x, y, bg_color,
 def generate(session: dict, theme: dict, language: str = "es",
              renmad_logo: Image.Image | None = None,
              bg_image:    Image.Image | None = None,
-             ata_logo:    Image.Image | None = None) -> tuple[bytes, bytes]:
+             ata_logo:    Image.Image | None = None,
+             variant:     str = "normal",
+             hide_speakers: bool = False) -> tuple[bytes, bytes]:
 
     strings   = LANGUAGE_STRINGS.get(language, LANGUAGE_STRINGS["es"])
     theme_rgb = tuple(theme["rgb"])
@@ -176,8 +178,10 @@ def generate(session: dict, theme: dict, language: str = "es",
     photo_els  = []   # speaker photos → movable, re-croppable PPTX picture shapes
 
     canvas = _build_bg(bg_image, theme_rgb)
-    grad   = _dark_gradient(W, SPLIT_Y, alpha_max=215)
-    canvas.paste(Image.new("RGB", (W, SPLIT_Y), (8, 8, 14)),
+    # No speakers → dark wash covers the whole canvas (no white speaker strip)
+    dark_h = H if hide_speakers else SPLIT_Y
+    grad   = _dark_gradient(W, dark_h, alpha_max=215)
+    canvas.paste(Image.new("RGB", (W, dark_h), (8, 8, 14)),
                  (0, 0), mask=grad.split()[3])
     draw = ImageDraw.Draw(canvas)
 
@@ -186,8 +190,11 @@ def generate(session: dict, theme: dict, language: str = "es",
     pad_l = 52; ty = 28
 
     # "WEBINAR GRATUITO" badge — branding label, not editable, draw in Phase 1
+    # "Grabación disponible" variant swaps the badge text.
     wb_f  = _f("bold", 28)
     badge = strings.get("free_webinar", "WEBINAR GRATUITO")
+    if variant == "recording_available":
+        badge = strings.get("recording_available", "Grabación disponible").upper()
     _, ty = _pill_badge(draw, badge, wb_f, pad_l, ty,
                         bg_color=theme_rgb, text_color=(255, 255, 255))
     ty += 22
@@ -230,8 +237,11 @@ def generate(session: dict, theme: dict, language: str = "es",
                          'color': (255, 255, 255)})
         rx += 14
 
-    if session.get("time_str"):
-        time_text = session["time_str"].upper()
+    if session.get("time_str") or variant == "starting_soon":
+        # "Empezamos pronto" variant replaces the time source before .upper()
+        time_src  = (strings.get("starting_soon", "Empezamos pronto")
+                     if variant == "starting_soon" else session.get("time_str", ""))
+        time_text = time_src.upper()
         time_x0   = rx
         rx, _     = _pill_badge(draw, time_text, dt_f, rx, ty,
                                   bg_color=theme_rgb, shape_only=True)
@@ -269,8 +279,9 @@ def generate(session: dict, theme: dict, language: str = "es",
         canvas.paste(al, (W - alw - 28, 20), mask=al)
 
     # ── White speaker strip ───────────────────────────────────────────────────
-    draw.rectangle([0, SPLIT_Y, W, H], fill=(255, 255, 255))
-    draw.rectangle([0, SPLIT_Y, W, SPLIT_Y + 5], fill=theme_rgb)
+    if not hide_speakers:
+        draw.rectangle([0, SPLIT_Y, W, H], fill=(255, 255, 255))
+        draw.rectangle([0, SPLIT_Y, W, SPLIT_Y + 5], fill=theme_rgb)
 
     # ── Speaker photos, logo pills, dividers ──────────────────────────────────
     speakers = session.get("speakers", [])

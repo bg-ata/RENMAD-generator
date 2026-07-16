@@ -10,22 +10,41 @@ def _canvas(size: int):
 
 def calendar(size: int = 26, color: tuple = (255, 255, 255)) -> Image.Image:
     img, d = _canvas(size)
-    p = max(1, size // 12)
-    s = size
-    # Outer box
-    d.rounded_rectangle([p, p*2, s-p-1, s-p-1], radius=p*2, outline=color, width=p)
-    # Header fill bar
-    d.rectangle([p+1, p*2+1, s-p-2, p*5], fill=color)
+    s  = size
+    lw = max(2, round(s / 14))          # stroke width
+
+    # Body box — leaves a little top margin for the binding posts
+    x0 = round(s * 0.10)
+    x1 = s - x0 - 1
+    y0 = round(s * 0.16)                # top of body (posts rise above this)
+    y1 = s - round(s * 0.08) - 1
+    rad = max(2, round(s * 0.12))
+    d.rounded_rectangle([x0, y0, x1, y1], radius=rad, outline=color, width=lw)
+
+    # Header bar — solid top strip of the body
+    header_h = round(s * 0.20)
+    hr = min(rad, max(1, header_h // 2))
+    d.rounded_rectangle([x0, y0, x1, y0 + header_h], radius=hr, fill=color)
+    d.rectangle([x0, y0 + header_h - hr, x1, y0 + header_h], fill=color)
+
     # Binding posts (top)
-    for bx in [s//3, s*2//3]:
-        d.rectangle([bx-p, 0, bx+p, p*3+1], fill=color)
-    # Grid: 2 rows × 3 dots
-    dot_r = max(1, p)
+    post_w = max(2, round(s * 0.07))
+    span   = x1 - x0
+    for bx in [x0 + round(span * 0.30), x0 + round(span * 0.70)]:
+        d.rounded_rectangle([bx - post_w, 0, bx + post_w, y0 + max(1, round(s * 0.03))],
+                            radius=post_w, fill=color)
+
+    # Dot grid: 2 rows × 3 columns in the lower area (small, well-separated)
+    grid_top = y0 + header_h + round(s * 0.14)
+    grid_bot = y1 - round(s * 0.13)
+    grid_l   = x0 + round(span * 0.15)
+    grid_r   = x1 - round(span * 0.15)
+    dot_r    = max(1, round(s * 0.045))
     for row in range(2):
+        cy = grid_top + (grid_bot - grid_top) * row
         for col in range(3):
-            cx = p*3 + col * (s - p*5) // 2
-            cy = p*7 + row * (s - p*10) // 2
-            d.ellipse([cx-dot_r, cy-dot_r, cx+dot_r, cy+dot_r], fill=color)
+            cx = grid_l + (grid_r - grid_l) * col // 2
+            d.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], fill=color)
     return img
 
 
