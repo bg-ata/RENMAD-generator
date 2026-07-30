@@ -10,6 +10,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from config import THEMES, LANGUAGE_STRINGS
+from utils.image_utils import split_speaker_composite
 from utils.slide_store import (
     save_slide, list_slides, load_slide, delete_slide, thumb_bytes,
     MAX_SLIDES, STORE_DIR,
@@ -46,6 +47,20 @@ def load_pil(uploaded) -> Image.Image | None:
     img = Image.open(io.BytesIO(uploaded.read())).convert("RGBA")
     return _shrink_if_huge(img)
 
+
+
+def absorb_photo(ph_pool: dict, lg_pool: dict, name: str, data: bytes):
+    """Drop a speaker photo into the pool. The NEW combined files (face on top,
+    white gap, company logo below — the way webinar/event images are saved since
+    Jul 2026) are split so the face feeds the photo pool and the logo lands in
+    the logo pool as logo_<stem>.png. Returns the logo key when one came out."""
+    photo, logo = split_speaker_composite(data)
+    ph_pool[name] = photo
+    if logo:
+        key = "logo_" + os.path.splitext(name)[0] + ".png"
+        lg_pool[key] = logo
+        return key
+    return None
 
 
 def make_zip(files: dict) -> bytes:
@@ -138,6 +153,7 @@ def _fill_from_url(url: str) -> None:
         return None
 
     ph_pool, lg_pool = {}, {}
+    extracted_logo = {}   # speaker idx -> logo key split out of their combined file
 
     spks = data.get("speakers", [])[:6]
     st.session_state["n"] = max(len(spks), 1)
@@ -157,7 +173,11 @@ def _fill_from_url(url: str) -> None:
             b = _dl(pu)
             if b:
                 fn = os.path.basename(pu.split("?")[0])
-                ph_pool[fn] = b
+                # NEW combined files (photo + company logo in one image): split so
+                # the face feeds the circle and the logo feeds the logo pill
+                _lk = absorb_photo(ph_pool, lg_pool, fn, b)
+                if _lk:
+                    extracted_logo[i] = _lk
                 st.session_state[f"psel_{i}"] = fn
 
     for lu in data.get("logos", []):
@@ -171,8 +191,12 @@ def _fill_from_url(url: str) -> None:
         if b:
             lg_pool[os.path.basename(lu.split("?")[0])] = b
 
-    # Match company logos to speakers by company name
+    # Match company logos to speakers — a logo split out of the speaker's own
+    # combined file is definitively theirs and beats any name-matching
     for i, sp in enumerate(spks):
+        if i in extracted_logo:
+            st.session_state[f"lsel_{i}"] = extracted_logo[i]
+            continue
         co = (sp.get("company") or "").strip()
         if co:
             m = best_match(co, list(lg_pool.keys()))
@@ -600,7 +624,8 @@ with _upl_ph_col:
     for _f in (_new_ph or []):
         try:
             _f.seek(0)
-            st.session_state["_photo_pool_bytes"][_f.name] = _f.read()
+            absorb_photo(st.session_state["_photo_pool_bytes"],
+                         st.session_state["_logo_pool_bytes"], _f.name, _f.read())
         except Exception:
             pass
 
@@ -632,7 +657,8 @@ with _upl_folder_col:
                 if "logo" in _stem:
                     st.session_state["_logo_pool_bytes"][_f]  = _img_bytes
                 else:
-                    st.session_state["_photo_pool_bytes"][_f] = _img_bytes
+                    absorb_photo(st.session_state["_photo_pool_bytes"],
+                                 st.session_state["_logo_pool_bytes"], _f, _img_bytes)
             except Exception:
                 pass
     elif _folder_path:
@@ -682,9 +708,15 @@ if not _suppress and st.session_state.get("_file_sig") != _file_sig and _file_si
         _co = st.session_state.get(f"company_{_i}", "").strip()
         if _nm:
             _ap = best_match(_nm, list(_ph_pool.keys()))
-            _al = best_match(_co, list(_lg_pool.keys()))
             st.session_state[f"psel_{_i}"] = _ap if _ap in _photo_keys else "(none)"
-            st.session_state[f"lsel_{_i}"] = _al if _al in _logo_keys  else "(none)"
+            # a logo split out of the speaker's own combined file is definitively
+            # theirs — it beats matching the company name against logo filenames
+            _extr = ("logo_" + os.path.splitext(_ap)[0] + ".png") if _ap != "(none)" else None
+            if _extr and _extr in _lg_pool:
+                st.session_state[f"lsel_{_i}"] = _extr
+            else:
+                _al = best_match(_co, list(_lg_pool.keys()))
+                st.session_state[f"lsel_{_i}"] = _al if _al in _logo_keys  else "(none)"
 elif _suppress:
     st.session_state["_file_sig"] = _file_sig
     for _i in range(n_speakers):
