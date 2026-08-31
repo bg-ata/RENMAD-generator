@@ -100,7 +100,8 @@
   .startline .step button{width:18px;height:13px;line-height:1;font-size:8px;border:1px solid var(--line);background:#fff;border-radius:3px;color:var(--muted);padding:0;display:flex;align-items:center;justify-content:center}
   .startline .step button:hover{color:var(--ink);background:#f1f2f4}
   .endline{color:var(--muted);font-size:11px;white-space:nowrap;margin-top:1px}
-  .durline{display:flex;align-items:center;gap:5px}
+  .shapeflag{font-size:10px;font-weight:700;color:#8a5200;background:#FFF3E0;border:1px solid #F0D9A8;border-radius:5px;padding:2px 5px;line-height:1.35;cursor:help}
+.durline{display:flex;align-items:center;gap:5px}
   .durline input{width:50px;text-align:center;border:1px solid var(--line);border-radius:6px;padding:4px}
   .durline span{font-size:11px;color:var(--muted)}
   .tcell select{border:1px solid var(--line);border-radius:6px;padding:5px;font-size:12px;background:#fff}
@@ -573,6 +574,60 @@ function reindexFromDOM(bl,track){ const ids=[...bl.querySelectorAll(".row")].ma
 function insEl(track,bi){ const d=document.createElement("div"); d.className="insrow"; d.innerHTML=`<button title="Insert a session here">＋</button>`; d.querySelector("button").onclick=()=>{ track.blocks.splice(bi+1,0,blankBlock()); render(); autosave(); }; return d; }
 function refreshTrackTimes(track){ const cont=$("blk_"+track.id); if(!cont) return; const rows=cont.querySelectorAll(".row"); track.blocks.forEach((b,i)=>{ const r=rows[i]; if(!r) return; const si=r.querySelector(".stime"); if(si && document.activeElement!==si){ si.value=fmtMin(b._s); } const en=r.querySelector(".endline"); if(en) en.textContent="→ "+fmtMin(b._e); }); }
 
+// ── Session-shape guardrails (Belén, 31 Aug 2026) ───────────────────────────
+// Friction, never a lock: the agenda still saves whatever she decides. Two house
+// rules, read off the speaker list rather than the Type dropdown, because the list
+// is what people actually fill in:
+//   · one person talking for more than 20 minutes stops being a presentation;
+//   · a panel crowds out its own speakers unless it is given room — 4 people need
+//     more than 45 minutes (50 at least), 5 or 6 need an hour.
+// Breaks and networking are exempt: they are supposed to be long and peopleless.
+function blockShape(b){
+  if(!b || b.type==="break" || b.type==="networking") return null;
+  const sp=parseSpeakers(b.spk), total=sp.length, mods=sp.filter(x=>x.mod).length;
+  const dur=+b.dur||0;
+  if(!total || !dur) return null;                 // nothing typed yet is not a mistake
+  const who=(total-mods)+" speaker"+((total-mods)===1?"":"s")+
+            (mods?(" + "+mods+" moderator"+(mods===1?"":"s")):"");
+  if(total===1 && !mods && dur>20)
+    return {key:"talk20", chip:"⚠ over 20 min",
+      why:"One speaker for "+dur+" minutes. Presentations here are normally no longer than 20 minutes.",
+      msg:"This is one speaker for "+dur+" minutes.\n\nPresentations are normally no longer than 20 minutes.\n\nKeep "+dur+" minutes anyway?"};
+  if(total>=5 && dur<60)
+    return {key:"panel60", chip:"⚠ tight for "+total,
+      why:total+" people ("+who+") in "+dur+" minutes. A panel of 5 or 6 needs at least an hour.",
+      msg:"This panel has "+total+" people ("+who+") in "+dur+" minutes.\n\nA panel of 5 or 6 needs at least an hour — at "+dur+" minutes each one gets a few minutes and the moderator has nothing to work with.\n\nKeep "+dur+" minutes anyway?"};
+  if(total>=4 && dur<45)
+    return {key:"panel45", chip:"⚠ tight for "+total,
+      why:total+" people ("+who+") in "+dur+" minutes. Panels this size run to more than 45 minutes, 50 at least.",
+      msg:"This panel has "+total+" people ("+who+") in "+dur+" minutes.\n\nPanels of this size run to more than 45 minutes — 50 at least.\n\nKeep "+dur+" minutes anyway?"};
+  return null;
+}
+// the lasting half of the warning: an amber chip on the row that stays as long as the
+// session is off-guideline, so the notice survives being clicked through
+function paintShapeFlag(r,s){
+  if(!r) return;
+  const cell=r.querySelector(".tcell"); if(!cell) return;
+  let f=cell.querySelector(".shapeflag");
+  if(!s){ if(f) f.remove(); return; }
+  if(!f){ f=document.createElement("div"); f.className="shapeflag"; cell.appendChild(f); }
+  f.textContent=s.chip; f.title=s.why;
+}
+// the friction half: asked ONCE per shape, on commit (never per keystroke), and never
+// on load — opening an agenda must not fire a queue of dialogs at somebody
+function checkBlockShape(b,r){
+  const s=blockShape(b);
+  paintShapeFlag(r,s);
+  if(!s){ b._ack=""; return; }
+  const sig=s.key+":"+(+b.dur||0)+":"+parseSpeakers(b.spk).length;
+  if(b._ack===sig) return;                        // already answered for exactly this shape
+  b._ack=sig;
+  if(!confirm("⚠ "+s.msg)){
+    const di=r&&r.querySelector("[data-k=dur]");  // she said no — put the fix one keystroke away
+    if(di){ di.focus(); di.select(); }
+  }
+}
+
 function rowEl(day,track,b,bi){
   computeTrack(day,track);
   const r=document.createElement("div"); r.className="row"; r.dataset.id=b.id;
@@ -608,8 +663,12 @@ function rowEl(day,track,b,bi){
   r.querySelectorAll("[data-k]").forEach(el=>{
     el.oninput=()=>{ b[el.dataset.k]=el.dataset.k==="dur"?(+el.value||0):el.value;
       if(el.dataset.k==="dur"||el.dataset.k==="fixed"){ computeTrack(day,track); const ds=document.querySelector(".day-sum"); if(ds) ds.textContent=daySummary(day); refreshTrackTimes(track); } autosave(); };
-    if(el.dataset.k==="type") el.onchange=()=>{ b.type=el.value; r.querySelector(".bar").style.background=TYPES[b.type].color; autosave(); };
+    if(el.dataset.k==="type") el.onchange=()=>{ b.type=el.value; r.querySelector(".bar").style.background=TYPES[b.type].color; checkBlockShape(b,r); autosave(); };
+    /* the guardrail fires on COMMIT, not on input: on a number field oninput sees the
+       "5" of "50" and would pop a dialog mid-keystroke */
+    if(el.dataset.k==="dur"||el.dataset.k==="spk") el.addEventListener("change",()=>checkBlockShape(b,r));
   });
+  paintShapeFlag(r,blockShape(b));   // mark what is already off-guideline, silently
   // editable start time (type, ↑↓ keys, or stepper buttons) — sets a pin
   const st=r.querySelector(".stime");
   const setStart=(v)=>{ const mm=parseMin(v); const val=(mm==null?"":fmtMin(mm));
