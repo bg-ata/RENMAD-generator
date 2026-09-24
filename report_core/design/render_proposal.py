@@ -121,7 +121,7 @@ def reg(s):   return _f("Inter-Regular.ttf", s)
 STRINGS = {
  "en": {"report":"MARKETING & AUDIENCE REPORT","partner":"In partnership with","moderator":"Moderator",
         "sec_facts":"KEY FACTS","facts_title":"The event in numbers","by_country":"By country",
-        "facts_ctx":["professionals signed up","unique organisations","across the world","on Zoom + YouTube","of registrants viewed","expert + moderator"],
+        "facts_ctx":["professionals signed up","unique organisations","across the world","on Zoom + YouTube","of registrants joined live","expert + moderator"],
         "registrations":"Registrations",
         "companies":"Companies","countries":"Countries","live":"Total viewers","attendance":"Attendance rate",
         "speakers":"Speakers","sec_aud":"AUDIENCE","country_title":"Where they joined from","by_region":"By region",
@@ -141,7 +141,7 @@ STRINGS = {
                "Finance & Advisory":"Finance & Advisory","EPC, Tech & Equipment":"EPC, Tech & Equipment"}},
  "es": {"report":"REPORTE DE MARKETING Y AUDIENCIA","partner":"En colaboración con","moderator":"Moderadora",
         "sec_facts":"DATOS CLAVE","facts_title":"El evento en cifras","by_country":"Por país",
-        "facts_ctx":["profesionales inscritos","organizaciones únicas","en todo el mundo","en Zoom + YouTube","de los registrados","experta + moderadora"],
+        "facts_ctx":["profesionales inscritos","organizaciones únicas","en todo el mundo","en Zoom + YouTube","de los registrados, en directo","experta + moderadora"],
         "registrations":"Registros",
         "companies":"Empresas","countries":"Países","live":"Espectadores totales","attendance":"Tasa de asistencia",
         "speakers":"Ponentes","sec_aud":"AUDIENCIA","country_title":"Desde dónde se conectaron","by_region":"Por región",
@@ -161,7 +161,7 @@ STRINGS = {
                "Finance & Advisory":"Finanzas y asesoría","EPC, Tech & Equipment":"EPC, tecnología y equipo"}},
  "it": {"report":"REPORT DI MARKETING E AUDIENCE","partner":"In collaborazione con","moderator":"Moderatrice",
         "sec_facts":"DATI CHIAVE","facts_title":"L'evento in numeri","by_country":"Per paese",
-        "facts_ctx":["professionisti iscritti","organizzazioni uniche","in tutto il mondo","su Zoom + YouTube","dei registrati","esperto + moderatrice"],
+        "facts_ctx":["professionisti iscritti","organizzazioni uniche","in tutto il mondo","su Zoom + YouTube","dei registrati, in diretta","esperto + moderatrice"],
         "registrations":"Registrazioni",
         "companies":"Aziende","countries":"Paesi","live":"Spettatori totali","attendance":"Tasso di partecipazione",
         "speakers":"Relatori","sec_aud":"AUDIENCE","country_title":"Da dove si sono collegati","by_region":"Per regione",
@@ -181,7 +181,7 @@ STRINGS = {
                "Finance & Advisory":"Finanza e consulenza","EPC, Tech & Equipment":"EPC, tech e forniture"}},
  "pl": {"report":"RAPORT MARKETINGOWY I AUDYTORIUM","partner":"We współpracy z","moderator":"Moderatorka",
         "sec_facts":"KLUCZOWE DANE","facts_title":"Wydarzenie w liczbach","by_country":"Według kraju",
-        "facts_ctx":["zarejestrowanych profesjonalistów","unikalnych organizacji","na całym świecie","na Zoom + YouTube","zarejestrowanych","ekspert + moderatorka"],
+        "facts_ctx":["zarejestrowanych profesjonalistów","unikalnych organizacji","na całym świecie","na Zoom + YouTube","zarejestrowanych, na żywo","ekspert + moderatorka"],
         "registrations":"Rejestracje",
         "companies":"Firmy","countries":"Kraje","live":"Łączna widownia","attendance":"Frekwencja",
         "speakers":"Prelegenci","sec_aud":"AUDYTORIUM","country_title":"Skąd dołączyli","by_region":"Według regionu",
@@ -500,13 +500,27 @@ def hero_tile(d, box, num, label, fill=ORANGE, numc=WHITE, labc=(255,224,210)):
     T(d,(box[0]+50,box[1]+44),num,black(72),numc,anchor="la")
     T(d,(box[0]+54,box[1]+162),label,semi(22),labc,anchor="la")
 
+def _speakers_ctx(lang, n_exp, n_mod):
+    """Sub-line of the Speakers card, e.g. '3 experts + moderator'."""
+    exp={"en":("expert","experts"),"es":("ponente","ponentes"),
+         "it":("esperto","esperti"),"pl":("ekspert","ekspertów")}[lang]
+    mod={"en":"moderator","es":"moderación","it":"moderazione","pl":"moderacja"}[lang]
+    parts=[]
+    if n_exp: parts.append(exp[0] if n_exp==1 else f"{n_exp} {exp[1]}")
+    if n_mod: parts.append(mod if n_mod==1 else f"{n_mod} {mod}")
+    return " + ".join(parts)
+
 def slide_facts(st, lang):
     _slide(1); s=STRINGS[lang]; img,d=canvas(GREY)
     if not ANNOTATE: halftone(d, 1570, 66, 1885, 210, (220,221,223), step=30, r=4)
     kicker(d,70,64,"01 · "+s["sec_facts"],s["facts_title"])
     star(d, tw(d,s["facts_title"],black(40))+118, 96, 30, YELLOW)
     draw_insight(d,"facts")
-    kf=st["key_facts"]; ctx=s["facts_ctx"]
+    kf=st["key_facts"]; ctx=list(s["facts_ctx"])
+    # speakers card: real count from the speakers list (was hard-coded "2")
+    sps=WEBINAR.get("speakers") or []
+    n_mod=sum(1 for p in sps if p.get("mod")); n_exp=len(sps)-n_mod
+    ctx[5]=_speakers_ctx(lang, n_exp, n_mod)
     cw,gx,gy=573,30,34; x0=70; y0=ctop(248)
     ch=340 if not ANNOTATE else int((H-90 - y0 - gy)//2)
     # (num, label, badge-bg, icon, icon-colour, is_hero)
@@ -515,7 +529,7 @@ def slide_facts(st, lang):
            (f"{kf['countries']}",s["countries"],"globe",TEAL,WHITE,False),
            (f"{kf['live_attendees']}",s["live"],"video",YELLOW,CHAR,False),
            (f"{kf['attendance_rate_pct']:.0f}%",s["attendance"],"gauge",GREEN,WHITE,False),
-           ("2",s["speakers"],"mic",LIGHT,WHITE,False)]
+           (f"{len(sps)}",s["speakers"],"mic",LIGHT,WHITE,False)]
     pos=[(0,0),(1,0),(2,0),(0,1),(1,1),(2,1)]
     for i,((num,lab,key,bg,icol,hero),(c,r)) in enumerate(zip(cells,pos)):
         cx=x0+c*(cw+gx); cy=y0+r*(ch+gy)
@@ -989,14 +1003,14 @@ def generate_report(webinar, insights, stats, orgs, lang="en", annotate=False,
     if out_dir:
         OUT = out_dir
         os.makedirs(OUT, exist_ok=True)
-    # total audience = Zoom live attendees + YouTube views (recompute attendance %)
+    # total viewers = Zoom live attendees + YouTube views. The attendance rate stays
+    # Zoom-only (live / registrations): YouTube views are anonymous, not registrants,
+    # so adding them inflated the rate (97% vs the real 35%).
     import copy as _copy, re as _re
     _yt = int(_re.sub(r"[^\d]", "", (webinar.get("youtube_views") or "")) or 0)
     if _yt:
         stats = _copy.deepcopy(stats); _kf = stats["key_facts"]
         _kf["live_attendees"] = _kf["live_attendees"] + _yt
-        if _kf.get("registrations"):
-            _kf["attendance_rate_pct"] = round(100.0 * _kf["live_attendees"] / _kf["registrations"], 1)
     deck = [slide_cover(stats, lang), slide_facts(stats, lang), slide_country(stats, lang),
             slide_industries(stats, lang), slide_engagement(stats, lang),
             slide_reach(stats, lang), slide_titles(stats, lang), slide_contact(stats, lang)]
