@@ -21,15 +21,34 @@ _CORE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _CORE not in sys.path:
     sys.path.insert(0, _CORE)
 
+# A git push redeploys this page, but the report_core modules it imported stay
+# cached in the running process, so fixes to them never reached the live app.
+# Drop any core module whose file changed since it was loaded, then re-import.
+def _purge_stale_core():
+    for name, mod in list(sys.modules.items()):
+        f = getattr(mod, "__file__", None) or ""
+        if not f.startswith(_CORE):
+            continue
+        try:
+            if os.path.getmtime(f) > getattr(mod, "_loaded_at", 0):
+                del sys.modules[name]
+        except OSError:
+            del sys.modules[name]
+_purge_stale_core()
+
 _CORE_OK, _CORE_ERR = True, ""
 try:
     from scraper.scrape import scrape_webinar
     from engine.ingest import build_stats, load_registrations
     from assemble import assemble, parse_email_block, derive_comp_sample, top_job_titles
-    from design.render_proposal import generate_report
+    from design.render_proposal import generate_report, REPORT_VERSION
     from library import save_report, list_reports, path_of, cover_of
 except Exception as e:
     _CORE_OK, _CORE_ERR = False, str(e)
+import time as _time
+for _m in list(sys.modules.values()):
+    if (getattr(_m, "__file__", None) or "").startswith(_CORE) and not hasattr(_m, "_loaded_at"):
+        _m._loaded_at = _time.time()
 
 LANGS = {"English": "en", "Spanish": "es", "Italian": "it", "Polish": "pl"}
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -41,6 +60,7 @@ st.title("📊 Webinar Reports")
 st.caption("Branded **Marketing & Audience Report** (editable PPTX) for a paid webinar.")
 if not _CORE_OK:
     st.error("Report core not available: %s" % _CORE_ERR); st.stop()
+st.caption("Report engine: %s" % REPORT_VERSION)
 
 # ── Saved reports (last 5) ───────────────────────────────────────────────────
 _saved = list_reports()

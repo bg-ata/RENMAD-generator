@@ -104,6 +104,7 @@ ICON = {"people":"E716","org":"E825","globe":"E774","video":"E714","gauge":"EC4A
 _icon_candidates = [os.path.join(FONTS, "SegoeIcons.ttf"), r"C:\Windows\Fonts\SegoeIcons.ttf",
                     r"C:\Windows\Fonts\segmdl2.ttf"]
 ICON_FONT_PATH = next((p for p in _icon_candidates if os.path.exists(p)), _icon_candidates[0])
+REPORT_VERSION = "24 Sep 2026 · v3"   # shown on the Reports page to confirm the live code
 # fixed contact portrait (Cintia) bundled in the repo
 CONTACT_PHOTO = os.path.join(_REPO, "assets", "report", "cintia_tight.png")
 
