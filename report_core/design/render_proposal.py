@@ -441,41 +441,53 @@ def slide_cover(st, lang):
     # Fit the title at the LARGEST font that stays within `avail`, using as FEW
     # lines as possible — but add lines (up to 4) when a long title would otherwise
     # be forced down to a tiny font. (Old behaviour capped at 2 lines -> tiny fonts.)
-    FLOOR, GOOD, CAP, MAXL = 46, 72, 112, 5
-    lines, fs = [full], CAP
-    for L in range(1, MAXL + 1):        # fewest lines that keep the font >= GOOD (>=36pt)
-        f = CAP
-        while f > FLOOR:
-            wl = wrap_lines(d, full, black(f), avail, max_lines=99)
-            if len(wl) <= L and all(tw(d, ln, black(f)) <= avail for ln in wl):
-                break
-            f -= 2
-        lines, fs = wrap_lines(d, full, black(f), avail, max_lines=99), f
-        if f >= GOOD or L == MAXL:
+    # Fill the left panel: the LARGEST font whose wrapped block fits both the width
+    # and a height budget (so short titles grow instead of leaving half the slide empty).
+    FLOOR, CAP, MAXL, HBUDGET = 46, 128, 5, 540
+    sub = WEBINAR.get("subtitle") or ""
+    if sub: HBUDGET -= 90
+    f = CAP
+    while f > FLOOR:
+        wl = wrap_lines(d, full, black(f), avail, max_lines=99)
+        if (len(wl) <= MAXL and len(wl) * int(f * 1.12) <= HBUDGET
+                and all(tw(d, ln, black(f)) <= avail for ln in wl)):
             break
-    y0 = {1: 300, 2: 272, 3: 250}.get(len(lines), 228)
+        f -= 2
+    lines, fs = wrap_lines(d, full, black(f), avail, max_lines=99), f
     pitch = int(fs * 1.12)                         # uniform leading for the stacked lines
+    # centre title + subtitle + date vertically between the kicker (y≈250) and the foot
+    sfs = 32
+    while sfs > 18 and tw(d, sub, semi(sfs)) > avail: sfs -= 1
+    blk = len(lines) * pitch + (24 + sfs + 44 if sub else 30) + 52
+    y0 = max(250, int(250 + (H - 90 - 250 - blk) / 2))
     for i, ln in enumerate(lines):
         ly = y0 + i * pitch
         NATIVE_NUMS.append({"slide": 0, "x": 70, "y": ly, "px": fs, "text": ln,
                             "rgb": tuple(CHAR), "anchor": "la", "kind": "black",
                             "url": None, "spacing": 4, "vbox": (ly - int(fs * 0.16), pitch)})
     yy = y0 + len(lines) * pitch                    # subtitle/date flow below the title
-    sub = WEBINAR.get("subtitle") or ""
-    sfs = 32
-    while sfs > 18 and tw(d, sub, semi(sfs)) > avail: sfs -= 1
     suby = yy + 24
     T(d,(72,suby),sub,semi(sfs),(48,54,58),anchor="la")
     dy = suby + (sfs + 44 if sub else 6)
     rrect(d,[72,dy,72+tw(d,WEBINAR['date'],bold(20))+56,dy+52],10,fill=CHAR)
     T(d,(100,dy+26),WEBINAR["date"],bold(20),WHITE,anchor="lm")
     global COVER_PHOTOS; COVER_PHOTOS=[]
-    sps=WEBINAR["speakers"]; n=max(1,len(sps)); sx=1548
+    sps=WEBINAR["speakers"]; n=max(1,len(sps))
     has_sp=bool(WEBINAR.get("sponsor_logo"))
-    top=110; bottom=(885 if has_sp else 1015); block=(bottom-top)/n   # adaptive 1–4 speakers
-    D=int(min(248, block*0.52)); name_fs=max(15,int(D*0.115)); role_fs=max(12,int(D*0.083))
+    top=(90 if n>2 else 110); bottom=(885 if has_sp else 1015)
+    # adaptive: 1–2 speakers stacked in one column; 3–4 in a 2×2 grid (3 = 2 + 1 centred)
+    # so the photos stay large instead of shrinking to ~100 px in a single column
+    cols = 1 if n<=2 else 2
+    rows_n = (n+cols-1)//cols
+    block=(bottom-top)/rows_n
+    colx = [1548] if cols==1 else [PX+(W-PX)//4+4, PX+3*(W-PX)//4-4]
+    D=int(min(248, block*0.52 if cols==1 else block*0.60, 300 if cols==1 else 250))
+    name_fs=max(18,min(30,int(D*0.12))); role_fs=max(14,min(22,int(D*0.085)))
+    cellw=(W-PX)//cols-30
     for i,sp in enumerate(sps):
-        cy=int(top+block*i+D/2+10)
+        r,c=divmod(i,cols)
+        sx = colx[c] if not (cols==2 and n%2 and i==n-1) else (PX+W)//2   # odd last one centred
+        cy=int(top+block*r+D/2+10)
         # white ring + light disc placeholder; the photo is an EDITABLE native picture in the PPTX
         d.ellipse([(sx-D//2-8)*SCALE,(cy-D//2-8)*SCALE,(sx+D//2+8)*SCALE,(cy+D//2+8)*SCALE],fill=WHITE)
         d.ellipse([(sx-D//2)*SCALE,(cy-D//2)*SCALE,(sx+D//2)*SCALE,(cy+D//2)*SCALE],fill=(228,229,231))
@@ -484,10 +496,14 @@ def slide_cover(st, lang):
             COVER_PHOTOS.append({"slide":0,"path":clean_avatar(os.path.join(ASSETS,ph)),
                                  "cx":sx,"cy":cy,"d":D})
         ny=cy+D//2+name_fs+4
-        T(d,(sx,ny),sp["name"],bold(name_fs),WHITE,anchor="mm")
+        nfs=name_fs
+        while nfs>14 and tw(d,sp["name"],bold(nfs))>cellw: nfs-=1
+        T(d,(sx,ny),sp["name"],bold(nfs),WHITE,anchor="mm")
         sub2=(sp.get("org") or sp.get("role") or "")
         role=(s["moderator"]+" · " if sp.get("mod") else "")+sub2
-        T(d,(sx,ny+role_fs+10),role,reg(role_fs),(255,224,210),anchor="mm")
+        rfs=role_fs
+        while rfs>11 and tw(d,role,reg(rfs))>cellw: rfs-=1
+        T(d,(sx,ny+role_fs+12),role,reg(rfs),(255,224,210),anchor="mm")
     sp_logo=WEBINAR.get("sponsor_logo")
     if sp_logo and os.path.exists(os.path.join(ASSETS,sp_logo)):
         rrect(d,[1330,H-150,1850,H-62],12,fill=WHITE)
@@ -695,8 +711,18 @@ def slide_contact(st, lang):
     RW=1180
     rect(d,[RW,0,W,H],WHITE)                                   # white right panel
     halftone(d, RW+30, 70, RW+300, 300, (255,210,185), step=30, r=6)     # halftone accent
-    star(d, W-150, 120, 66, ORANGE); star(d, W-64, 220, 38, YELLOW)
-    paste_cover(img, CONTACT_PHOTO, [RW+20, 150, W, H], centering=(0.5,0.04))
+    star(d, W-110, 110, 60, ORANGE); star(d, W-48, 210, 34, YELLOW)
+    # the cut-out fills the WHOLE white panel: bottom-aligned, as tall as the slide
+    # allows (small headroom), sides cropped evenly — no white gutter left or top
+    try:
+        p=Image.open(CONTACT_PHOTO).convert("RGBA")
+        ph=(H-40)*SCALE; pw=int(p.width*ph/p.height)
+        p=p.resize((pw,ph),Image.LANCZOS)
+        bw=(W-RW)*SCALE
+        if pw>bw: p=p.crop(((pw-bw)//2,0,(pw-bw)//2+bw,ph))
+        img.paste(p,(RW*SCALE+(bw-p.width)//2,H*SCALE-ph),p)
+    except Exception:
+        pass
     # left content
     T(d,(120,150),s["sec_contact"],bold(18),ORANGE,anchor="la")
     rect(d,[122,184,272,188],ORANGE)
