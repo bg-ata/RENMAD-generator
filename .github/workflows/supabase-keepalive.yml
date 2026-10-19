@@ -1,0 +1,25 @@
+# Keeps the Agenda Builder's Supabase project (timedagenda) awake.
+# Free-plan projects are paused after 7 days without activity; one tiny
+# read every 3 days is enough. The key is the public publishable key that
+# agenda_app/config.js already ships, so no secret is needed.
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "17 6 */3 * *"   # 06:17 UTC every 3 days
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping timedagenda
+        env:
+          SUPA_URL: https://abxsnwmjbcnhjhzydqii.supabase.co
+          SUPA_KEY: sb_publishable_dJOHQcN4hTkrXs0it2fZYw_zrvNPADo
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$SUPA_URL/rest/v1/agendas?select=id&limit=1" \
+            -H "apikey: $SUPA_KEY")
+          echo "HTTP $code"
+          test "$code" = "200"
