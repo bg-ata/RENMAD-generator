@@ -1,37 +1,37 @@
--- RENMAD Agenda — cloud storage setup
--- Run this ONCE in your Supabase project: Dashboard → SQL Editor → New query → paste → Run.
--- It creates the single shared table for all agendas and locks it so ONLY logged-in
--- @ata.email users (via the app) can read or write. Nobody else can see the data,
--- even if they somehow reach the database.
+-- RENMAD Agenda — storage in the RENMAD Dispatch Center's Supabase (dxgvbufsifgowwfggvmr).
+-- Applied 19 Oct 2026 via the Supabase MCP (migrations dc_agendas_table + dc_agendas_stamp).
+-- Kept here as the record of the schema; re-running it is safe.
+-- Before that date agendas lived in a separate free project (timedagenda), whose table
+-- anyone could read with the public key. Here only signed-in Dispatch roster members get in.
 
-create table if not exists public.agendas (
+create table if not exists public.dc_agendas (
   id          uuid primary key default gen_random_uuid(),
   title       text,
-  data        jsonb not null,            -- the whole agenda (same shape the app already uses)
+  data        jsonb not null,            -- the whole agenda (same shape the app uses)
   updated_at  timestamptz not null default now(),
-  updated_by  text,                      -- email of the last editor (for the "last edited by" stamp)
-  locked_by   text,                      -- email of who currently has it open (turn-taking)
+  updated_by  text,                      -- stamped by dc_stamp() from the signed-in user
+  locked_by   text,
   locked_at   timestamptz
 );
+alter table public.dc_agendas enable row level security;
+revoke all on public.dc_agendas from anon;
+grant select, insert, update, delete on public.dc_agendas to authenticated;
 
-alter table public.agendas enable row level security;
+drop policy if exists dc_agendas_sel on public.dc_agendas;
+drop policy if exists dc_agendas_ins on public.dc_agendas;
+drop policy if exists dc_agendas_upd on public.dc_agendas;
+drop policy if exists dc_agendas_del on public.dc_agendas;
+create policy dc_agendas_sel on public.dc_agendas for select to authenticated using ((select dc_access()) is not null);
+create policy dc_agendas_ins on public.dc_agendas for insert to authenticated with check ((select dc_access()) is not null);
+create policy dc_agendas_upd on public.dc_agendas for update to authenticated using ((select dc_access()) is not null) with check ((select dc_access()) is not null);
+create policy dc_agendas_del on public.dc_agendas for delete to authenticated using ((select dc_access()) is not null);
 
--- Helper: is the caller a signed-in ATA team member?
-create or replace function public.is_ata() returns boolean
-language sql stable as $$
-  select coalesce(auth.jwt() ->> 'email', '') like '%@ata.email'
-$$;
+drop trigger if exists dc_agendas_stamp on public.dc_agendas;
+create trigger dc_agendas_stamp before insert or update on public.dc_agendas
+  for each row execute function public.dc_stamp();
 
--- Only ATA team members can read / create / edit / delete agendas.
-drop policy if exists ata_select on public.agendas;
-drop policy if exists ata_insert on public.agendas;
-drop policy if exists ata_update on public.agendas;
-drop policy if exists ata_delete on public.agendas;
-
-create policy ata_select on public.agendas for select using ( public.is_ata() );
-create policy ata_insert on public.agendas for insert with check ( public.is_ata() );
-create policy ata_update on public.agendas for update using ( public.is_ata() ) with check ( public.is_ata() );
-create policy ata_delete on public.agendas for delete using ( public.is_ata() );
-
--- Let the app receive live updates so teammates see each other's changes.
-alter publication supabase_realtime add table public.agendas;
+do $$ begin
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='dc_agendas') then
+    alter publication supabase_realtime add table public.dc_agendas;
+  end if;
+end $$;

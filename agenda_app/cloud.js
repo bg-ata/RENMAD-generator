@@ -1,17 +1,41 @@
-/* RENMAD Agenda — cloud mode (team passcode login).
+/* RENMAD Agenda — cloud mode, stored in the RENMAD Dispatch Center's Supabase.
    Loaded LAST, so it overrides the app's local-storage functions with online ones.
-   - Login: one shared team PASSCODE (no emails, no rate limits, no expiring links).
-     The passcode is the password of the shared SUPA_SHARED_EMAIL account, so it still
-     unlocks a real, secured database (outsiders without the passcode get nothing).
-   - Identity: each person types their own @ata.email once → shown as "last edited by".
-   - Storage: one shared Supabase table = one place online for the whole team.
+   - Login: the Dispatch Center's. The Tools page frames this app with ?dc_token=<access
+     token>&dc_refresh=<refresh token>; every request goes out AS that colleague, so the
+     table's RLS (dc_agendas: Dispatch roster only, anon gets nothing) does the gating.
+   - The access token lives ~1h; dc_refresh mints a fresh one before it dies, so an agenda
+     left open all afternoon still saves (same pattern as the Proposal Builder's dc_auth.py).
+   - "Last edited by" is stamped server-side by dc_stamp() from the signed-in user.
    - Live: realtime refresh so colleagues see each other's agendas appear/update.
-   If config is missing, it stays out of the way and the app runs in local mode. */
+   Until 19 Oct 2026 the agendas lived in a separate project (timedagenda). */
 (function(){
-  if(!window.SUPA_URL || !window.SUPA_KEY || !window.supabase || !window.SUPA_SHARED_EMAIL){ return; }
-  const DOMAIN = (window.SUPA_DOMAIN||"ata.email").toLowerCase();
-  const SHARED_EMAIL = window.SUPA_SHARED_EMAIL;
-  const sb = window.supabase.createClient(window.SUPA_URL, window.SUPA_KEY, { auth:{ persistSession:true, autoRefreshToken:true } });
+  if(!window.DC_SUPA_URL || !window.DC_SUPA_ANON || !window.supabase){ return; }
+  const TABLE = "dc_agendas";
+  const qs = new URLSearchParams(location.search);
+  let TOKEN = qs.get("dc_token")||"", REFRESH = qs.get("dc_refresh")||"";
+  const host = location.hostname;
+  // Local dev with no Dispatch token: stay out of the way, the app runs on localStorage.
+  if(!TOKEN && (host==="localhost" || host==="127.0.0.1" || host==="")){ return; }
+
+  const jwtExp = t=>{ try{ return JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/"))).exp||0; }catch(e){ return 0; } };
+  let refreshing = null;
+  async function freshToken(){
+    if(TOKEN && jwtExp(TOKEN) - Date.now()/1000 > 120) return TOKEN;
+    if(!REFRESH) return TOKEN;
+    if(!refreshing){
+      refreshing = (async ()=>{
+        try{
+          const r = await fetch(window.DC_SUPA_URL+"/auth/v1/token?grant_type=refresh_token",
+            { method:"POST", headers:{ apikey:window.DC_SUPA_ANON, "Content-Type":"application/json" }, body:JSON.stringify({ refresh_token:REFRESH }) });
+          if(r.ok){ const j = await r.json(); if(j.access_token) TOKEN = j.access_token; if(j.refresh_token) REFRESH = j.refresh_token; }  // refresh tokens rotate
+        }catch(e){}
+        refreshing = null;
+      })();
+    }
+    await refreshing;
+    return TOKEN;
+  }
+  const sb = window.supabase.createClient(window.DC_SUPA_URL, window.DC_SUPA_ANON, { accessToken: freshToken });
   let CLOUD = [];                 // cache of all agendas: {id,name,updated,data,by}
   let CURRENT_EMAIL = "";
   const newId = ()=> (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now()+"-"+Math.round(performance.now()*1000));
@@ -47,7 +71,7 @@
 
   // ── cloud store: overrides the app's local functions (same names) ──────────
   async function refreshCloud(){
-    const { data, error } = await sb.from("agendas").select("id,title,data,updated_at,updated_by");
+    const { data, error } = await sb.from(TABLE).select("id,title,data,updated_at,updated_by");
     if(error){ console.warn("load failed", error); return false; }
     CLOUD = (data||[]).map(r=>({ id:r.id, name:r.title||((r.data&&r.data.titleA)||"Untitled"), updated:Date.parse(r.updated_at)||0, data:r.data||{}, by:r.updated_by||"" }));
     return true;
@@ -66,7 +90,7 @@
       clearTimeout(cloudTimer); setSyncCloud("saving");
       cloudTimer=setTimeout(async ()=>{
         const row={ id:curId, title:(S.titleA||"Untitled event"), data:S, updated_at:new Date().toISOString(), updated_by:CURRENT_EMAIL };
-        const { error } = await sb.from("agendas").upsert(row, { onConflict:"id" });
+        const { error } = await sb.from(TABLE).upsert(row, { onConflict:"id" });
         if(error){ setSyncCloud("error"); toast("⚠ Couldn’t save online — check your connection"); return; }
         const rec={ id:curId, name:row.title, updated:Date.now(), data:S, by:CURRENT_EMAIL };
         const i=CLOUD.findIndex(p=>p.id===curId); if(i>=0) CLOUD[i]=rec; else CLOUD.push(rec);
@@ -76,7 +100,7 @@
     newProject = function(){ S=blankState(); curId=newId(); view={type:"overview"}; render(); autosave(); toast("New agenda — give it a title in Event details"); };
     openProjectId = function(id){ const p=CLOUD.find(x=>x.id===id); if(!p) return; S=p.data; normalize(); curId=id; if(typeof closeModal==="function") closeModal(); view=(S.days&&S.days.length)?{type:"day",id:S.days[0].id}:{type:"overview"}; render(); };
     deleteProjectId = async function(id){
-      const { error } = await sb.from("agendas").delete().eq("id", id);
+      const { error } = await sb.from(TABLE).delete().eq("id", id);
       if(error){ toast("Could not delete: "+(error.message||error)); return; }
       CLOUD = CLOUD.filter(x=>x.id!==id);
       if(curId===id){ if(CLOUD.length){ openProjectId(CLOUD.slice().sort((a,b)=>b.updated-a.updated)[0].id); } else { newProject(); } } else { render(); }
@@ -90,13 +114,14 @@
     c.innerHTML='👤 '+esc(email)+' <a href="'+esc(window.DC_TOOLS_URL||"#")+'" id="cloOut" style="color:#E0392B;text-decoration:none;font-weight:700">Tools</a>';
   }
   function subscribeRealtime(){
-    try{ sb.channel("agendas-live").on("postgres_changes",{event:"*",schema:"public",table:"agendas"}, async ()=>{ await refreshCloud(); if(view && view.type==="home") render(); }).subscribe(); }catch(e){}
+    try{ sb.channel("agendas-live").on("postgres_changes",{event:"*",schema:"public",table:TABLE}, async ()=>{ await refreshCloud(); if(view && view.type==="home") render(); }).subscribe(); }catch(e){}
   }
 
   async function proceed(){
     installCloudStore();
     showLoading("Loading agendas…");
-    await refreshCloud();
+    // a failed load must never look like an empty library (someone would start over)
+    if(!await refreshCloud()){ showWall(); return; }
     const arr=CLOUD.slice().sort((a,b)=>b.updated-a.updated);
     if(arr.length){ S=arr[0].data; normalize(); curId=arr[0].id; } else { S=blankState(); curId=newId(); }
     view={type:"home"}; render();
@@ -106,16 +131,12 @@
   // ── boot ──────────────────────────────────────────────────────────────────
   async function start(){
     showLoading("Loading…");
-    // Local dev bypass: run straight in on localhost (no Dispatch token to pass).
-    const host=location.hostname;
-    if(host==="localhost" || host==="127.0.0.1" || host===""){ CURRENT_EMAIL="local@ata.email"; proceed(); return; }
-    // Otherwise require a valid Dispatch Center token (added by the Tools tile).
-    const token=new URLSearchParams(location.search).get("dc_token")||"";
-    const email=await validateDispatch(token);
+    // Require a valid Dispatch Center token (added by the Tools tile).
+    const email=await validateDispatch(await freshToken());
     if(!email){ showWall(); return; }
     CURRENT_EMAIL=email;
     try{ localStorage.setItem("renmad_user_email", email); }catch(e){}
-    try{ const u=new URL(location.href); u.searchParams.delete("dc_token"); history.replaceState(null,"",u.toString()); }catch(e){}  // tidy the URL
+    try{ const u=new URL(location.href); u.searchParams.delete("dc_token"); u.searchParams.delete("dc_refresh"); history.replaceState(null,"",u.toString()); }catch(e){}  // tidy the URL
     proceed();
   }
   start();
