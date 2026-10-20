@@ -142,6 +142,15 @@
   .modalbg{position:fixed;inset:0;background:rgba(20,25,30,.45);z-index:60;display:flex;align-items:center;justify-content:center}
   .modal{background:#fff;border-radius:12px;width:520px;max-width:92vw;max-height:84vh;overflow:auto;padding:18px}
   .modal h3{margin:0 0 12px}
+  .evlink{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 16px;background:#fafbfc}
+  .evlink.ask{border-color:var(--accent);background:#fff}.evlink.on{border-left:4px solid var(--accent)}
+  .evact{display:flex;gap:6px;flex:0 0 auto}.evsub{font-size:12px;color:var(--muted)}.evsugg{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .evcode{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:#1c2529;border-radius:4px;padding:1px 6px;margin-right:4px}
+  .evlist{max-height:52vh;overflow:auto}.evsec{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:10px 0 4px}
+  .evrow{display:flex;align-items:center;gap:8px;padding:8px 6px;border-radius:7px;cursor:pointer}.evrow:hover{background:#f1f3f5}
+  .evrow b{font-weight:600}.evbar{width:4px;align-self:stretch;border-radius:2px}.evbr{margin-left:auto}
+  .srcchip{font-size:11.5px;color:#2e7d32;margin-top:4px}.srcchip span{opacity:.9}.srcchip.edited{color:#a86200}.srcchip a{color:var(--accent);font-weight:700}
+  .btn.off{opacity:.45;cursor:not-allowed}
   .prj{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:10px;margin:7px 0}
   .prj .nm{flex:1}
   .prj .nm b{display:block}
@@ -191,7 +200,8 @@
     <select id="expLang" class="th" title="Which language to export"></select>
     <button class="btn" id="btnWord">📝 Word</button>
     <button class="btn" id="btnDocx">📄 .docx</button>
- <button class="btn" id="btnSlides" title="Export a JSON for the Title Slides generator">🎬 Slides JSON</button>
+    <button class="btn" id="btnTS">🎬 Title slides</button>
+    <button class="btn ghost" id="btnSlides" title="Export a JSON for the Title Slides generator">Slides JSON</button>
     <button class="btn primary" id="btnPdf">📥 PDF</button>
     <button class="btn" id="btnPrint">🖨 Print</button>
   </div>
@@ -292,7 +302,7 @@ function render(){
   fillSelect($("theme"),THEMES,S.themeKey,(k,v)=>v.name);
   fillSelect($("langA"),LANGS,S.langA,(k,v)=>v); fillSelect($("langB"),LANGS,S.langB,(k,v)=>v);
   fillExpLang();
-  renderSidebar();
+  renderSidebar(); paintSlidesBtn();
   if(view.type==="day" && !dayById(view.id)) view={type:"overview"};
   const c=$("content");
   if(view.type==="home"){ $("vtitle").textContent="Home"; renderHome(c); }
@@ -335,10 +345,13 @@ function renderFooter(c){
 }
 
 function renderOverview(c){
+  const dv=S.event?evDerived(S.event):null;
   c.innerHTML=`
+    ${linkPanel()}
     <div class="ovgrid">
-      <div class="fld full"><label>Event title (appears on the agenda)</label><input class="mini" id="ovTA" value="${esc(S.titleA)}" placeholder="e.g. RENMAD Almacenamiento 2026" spellcheck="true"></div>
-      <div class="fld full"><label>Location / dates</label><input class="mini" id="ovLA" value="${esc(S.locA)}" placeholder="Madrid · 15–16 Sep 2026" spellcheck="true"></div>
+      <div class="fld full"><label>Event title (appears on the agenda)</label><input class="mini" id="ovTA" value="${esc(S.titleA)}" placeholder="e.g. RENMAD Almacenamiento 2026" spellcheck="true">${dv?srcChip("titleA",S.titleA,dv.titleA):""}</div>
+      <div class="fld full"><label>Location / dates</label><input class="mini" id="ovLA" value="${esc(S.locA)}" placeholder="Madrid · 15–16 Sep 2026" spellcheck="true">${dv?srcChip("locA",S.locA,dv.locA):""}</div>
+      ${dv?`<div class="fld full">${srcChip("themeKey",S.themeKey,dv.themeKey,"Theme",k=>(THEMES[k]||{}).name||k)}${srcChip("days",daysSig(),dv.dayDates.join(" + "),"Days & dates")}${dv.langs?srcChip("langs",S.langA+"/"+S.langB,dv.langs[0]+"/"+(dv.langs[1]||dv.langs[0]),"Languages",v=>v.split("/").map(x=>LANGS[x]||x).join(" ↔ ")):""}</div>`:""}
     </div>
     <div class="fld" style="margin-top:16px"><label>Header logo — shows on the exported agenda (auto from the chosen theme)</label>
       <div class="logobox"><img id="ovLogo" src="${headerLogo()}" alt="logo">
@@ -349,9 +362,153 @@ function renderOverview(c){
     </div>
     <p style="color:var(--muted);margin-top:18px">Add days in the sidebar, then open each to build its programme. <b>Spanish/English titles are translated per session</b>; timings, dates and speakers are shared across both languages.</p>`;
   $("ovTA").oninput=e=>{ S.titleA=e.target.value; renderSidebar(); autosave(); };
+  $("ovTA").onchange=$("ovLA").onchange=()=>render();   // refresh the "from the Dispatch / edited" chips
   $("ovLA").oninput=e=>{ S.locA=e.target.value; autosave(); };
+  bindLinkPanel(c);
   $("ovLogoUp").onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader(); rd.onload=()=>{ S.headerLogo=rd.result; render(); autosave(); }; rd.readAsDataURL(f); };
   $("ovLogoReset").onclick=()=>{ S.headerLogo=""; render(); autosave(); };
+}
+
+// ── Dispatch event link (Belén, 20 Oct 2026: "pick the event, don't type it") ──
+// A new agenda starts by choosing its event from the Dispatch (dc_events). The event
+// fills title, location/dates, day dates, theme and languages; those fields stay
+// editable here and each one says whether it still matches the Dispatch.
+// S.event = snapshot {id, ecode, name, topic, city, country, date, days}.
+const DC_ORIGIN="https://dispatch.renmad.com";
+// Events with a brochure in the Brochure Builder, as "E057:es-en,E058:en-it". Handed
+// over by the Dispatch's tool.html (dc_br) — github.io can't read brochures.json
+// (no CORS) — and remembered for when the app is opened in its own tab.
+const BROCHURES=(()=>{ let raw=new URLSearchParams(location.search).get("dc_br");
+  try{ if(raw!=null) localStorage.setItem("renmad_dc_br",raw); else raw=localStorage.getItem("renmad_dc_br"); }catch(e){}
+  const map={}; (raw||"").split(",").forEach(x=>{ const p=x.split(":"); const ec=(p[0]||"").trim().toUpperCase(); if(ec) map[ec]=(p[1]||"").split("-").filter(l=>LANGS[l]); });
+  return {known:raw!=null, map}; })();
+let DC_EVENTS=null, dcEventsErr="";
+async function loadDcEvents(){
+  if(DC_EVENTS) return DC_EVENTS;
+  if(!window.agFetchEvents){ dcEventsErr="The Dispatch event list loads when this tool is opened from the Dispatch Center (Tools → Agenda Builder)."; return null; }
+  try{ const rows=await window.agFetchEvents();
+    DC_EVENTS=(rows||[]).filter(e=>!e.deleted && e.kind!=="external" && /^\d{4}-\d\d-\d\d/.test(e.date||"") && e.name);
+    return DC_EVENTS; }
+  catch(e){ dcEventsErr="Couldn't load the Dispatch events ("+(e.message||e)+")."; return null; }
+}
+const fold=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
+function evDates(ev){ const n=Math.max(1,Math.min(7,Math.round(+ev.days||1))); const p=ev.date.slice(0,10).split("-").map(Number); return Array.from({length:n},(_,i)=>new Date(Date.UTC(p[0],p[1]-1,p[2]+i))); }
+const locOf=l=>(l||"en")==="en"?"en-GB":l;
+const tidyD=s=>s.replace(/\./g,"").replace(/\bSept\b/,"Sep");
+function fmtDay(dt,l){ return tidyD(dt.toLocaleDateString(locOf(l),{day:"numeric",month:"short",year:"numeric",timeZone:"UTC"})); }
+function evRange(ev,l){ const d=evDates(ev), a=d[0], b=d[d.length-1]; if(d.length===1) return fmtDay(a,l);
+  const sameM=a.getUTCMonth()===b.getUTCMonth(); const first=sameM?String(a.getUTCDate()):tidyD(a.toLocaleDateString(locOf(l),{day:"numeric",month:"short",timeZone:"UTC"}));
+  return first+(sameM?"–":" – ")+fmtDay(b,l); }
+function evIsPast(ev){ const d=evDates(ev); return d[d.length-1].getTime() < Date.UTC(new Date().getFullYear(),new Date().getMonth(),new Date().getDate()); }
+// Dispatch topic/series -> agenda THEMES. Same series-by-NAME override as the Dispatch's
+// imagegen_core.js igResolveEvent ("RENMAD Talks BESS" has topic Renewables/AI but is Talks).
+function themeForEvent(ev){ const nm=fold(ev.name);
+  if(/\btalks\b/.test(nm)) return "talks";
+  if(nm.indexOf("useful")>=0) return "ata";
+  if(nm.indexOf("chile")>=0 || ev.country==="Chile") return "chile";
+  if(ev.topic==="Data Centers") return ev.country==="Italy"?"datacenters_italia":"datacenters";
+  return {"Storage":"almacenamiento","Biomethane":"biometano","Hydrogen":"hidrogeno","Investment":"invest","Renewables / AI":"ata"}[ev.topic]||"ata"; }
+function evCode(ev){ return String(ev.ecode||"").toUpperCase(); }
+function evDerived(ev){
+  const name=/\b(19|20)\d\d\b/.test(ev.name)?ev.name:ev.name+" "+ev.date.slice(0,4);
+  const langs=(BROCHURES.map[evCode(ev)]||[]).length?BROCHURES.map[evCode(ev)]:null;
+  return { titleA:name, locA:[ev.city,evRange(ev,S.langA)].filter(Boolean).join(" · "), themeKey:themeForEvent(ev),
+           langs, dayDates:evDates(ev).map(d=>fmtDay(d,S.langA)) }; }
+function daysSig(){ return S.days.map(d=>d.date||"—").join(" + "); }
+function evSnap(ev){ return {id:ev.id, ecode:evCode(ev), name:ev.name, topic:ev.topic||"", city:ev.city||"", country:ev.country||"", date:ev.date.slice(0,10), days:+ev.days||1}; }
+// Apply the event's values. all=true for a new agenda; false (linking an existing one)
+// only fills what is empty — the rest shows as "edited here" with a one-click fix.
+function applyEvent(ev, all){
+  S.event=evSnap(ev); S.eventDismissed=false;
+  let dv=evDerived(S.event);
+  if(all && dv.langs){ S.langA=dv.langs[0]; S.langB=dv.langs[1]||dv.langs[0]; dv=evDerived(S.event); }
+  if(all||!S.titleA) S.titleA=dv.titleA;
+  if(all||!S.locA) S.locA=dv.locA;
+  if(all) S.themeKey=dv.themeKey;
+  if(all||S.days.every(d=>!d.date)) applyDays(dv);
+}
+function applyDays(dv){ dv.dayDates.forEach((t,i)=>{ if(!S.days[i]) S.days.push(blankDay(i+1)); S.days[i].date=t; }); }
+function useDispatch(field){ const dv=evDerived(S.event);
+  if(field==="titleA") S.titleA=dv.titleA; else if(field==="locA") S.locA=dv.locA; else if(field==="themeKey") S.themeKey=dv.themeKey;
+  else if(field==="days") applyDays(dv); else if(field==="langs"&&dv.langs){ S.langA=dv.langs[0]; S.langB=dv.langs[1]||dv.langs[0]; }
+  render(); autosave(); }
+// "↳ from the Dispatch" / "✎ edited here — Dispatch says … · use it"
+function srcChip(field,cur,want,label,show){ show=show||(v=>v); const ec=esc(S.event.ecode||"Dispatch");
+  const same=String(cur||"").trim()===String(want||"").trim();
+  return `<div class="srcchip ${same?"":"edited"}">${label?`<b>${esc(label)}:</b> `:""}${same?`${label?esc(show(cur))+" ":""}<span>↳ from the Dispatch (${ec})</span>`
+    :`${label?esc(show(cur))+" — ":""}<span>✎ edited here · Dispatch: “${esc(show(want))}”</span> <a href="#" data-use="${field}">use it</a>`}</div>`; }
+function linkPanel(){
+  if(S.event){ const ev=S.event, ec=ev.ecode, br=BROCHURES.map[ec];
+    return `<div class="evlink on"><div><b>🔗 Linked to the Dispatch event</b> <span class="evcode">${esc(ec||"")}</span> ${esc(ev.name)} · ${esc(evRange(ev,"en"))}${ev.city?" · "+esc(ev.city):""}
+      <div class="evsub">${br?`📘 Has a brochure — 🎬 Title slides can take its photos and logos.`:(BROCHURES.known?`No brochure for ${esc(ec)} yet, so no one-click title slides.`:"")}</div></div>
+      <div class="evact"><button class="btn ghost" id="evChange">Change event</button><button class="btn ghost" id="evUnlink">Unlink</button></div></div>`; }
+  if(S.eventDismissed) return `<div class="evlink"><span class="evsub">Not linked to a Dispatch event.</span> <button class="btn ghost" id="evLink">🔗 Link to an event</button></div>`;
+  return `<div class="evlink ask"><div><b>🔗 Which Dispatch event is this agenda for?</b><div class="evsub">Linking fills the title, dates, venue and theme from the Dispatch and enables one-click title slides.</div>
+    <div id="evSuggest" class="evsugg"><span class="evsub">Looking for matches…</span></div></div>
+    <div class="evact"><button class="btn primary" id="evLink">Pick the event</button><button class="btn ghost" id="evNo" title="This event is not in the Dispatch">Not in the Dispatch</button></div></div>`;
+}
+function suggestScore(ev,title){ const a=fold(title).match(/[a-z0-9]+/g)||[], b=fold(ev.name+" "+ev.date.slice(0,4)+" "+(ev.city||"")).match(/[a-z0-9]+/g)||[];
+  const stop={renmad:1,de:1,the:1,"2026":0}; let s=0; a.forEach(w=>{ if(w.length>1 && !stop[w] && b.indexOf(w)>=0) s+=(/^\d{4}$/.test(w)?0.6:1); }); return s; }
+function bindLinkPanel(c){
+  const q=id=>c.querySelector("#"+id);
+  if(q("evLink")) q("evLink").onclick=()=>openEventPicker("link");
+  if(q("evChange")) q("evChange").onclick=()=>openEventPicker("link");
+  if(q("evUnlink")) q("evUnlink").onclick=()=>{ if(!confirm("Unlink this agenda from "+(S.event.ecode||"the Dispatch event")+"? The fields keep their values.")) return; S.event=null; S.eventDismissed=true; render(); autosave(); };
+  if(q("evNo")) q("evNo").onclick=()=>{ S.eventDismissed=true; render(); autosave(); };
+  c.querySelectorAll("[data-use]").forEach(a=>a.onclick=e=>{ e.preventDefault(); useDispatch(a.dataset.use); });
+  const box=q("evSuggest"); if(box) loadDcEvents().then(list=>{
+    if(!list){ box.innerHTML=`<span class="evsub">${esc(dcEventsErr)}</span>`; return; }
+    const top=list.map(ev=>({ev,s:suggestScore(ev,S.titleA)})).filter(x=>x.s>=1).sort((x,y)=>y.s-x.s||String(y.ev.date).localeCompare(x.ev.date)).slice(0,3);
+    box.innerHTML=top.length?`<span class="evsub">Looks like:</span> `+top.map(x=>`<button class="btn evpick" data-ev="${esc(String(x.ev.id))}">${esc(evCode(x.ev))} · ${esc(x.ev.name)} · ${esc(evRange(x.ev,"en"))}</button>`).join(" "):`<span class="evsub">No obvious match by title — pick it from the list.</span>`;
+    box.querySelectorAll("[data-ev]").forEach(b=>b.onclick=()=>{ const ev=list.find(e=>String(e.id)===b.dataset.ev); if(ev){ applyEvent(ev,false); render(); autosave(); toast("Linked to "+evCode(ev)); } });
+  });
+}
+// The picker: upcoming first (soonest on top), then past (latest on top).
+function startNewAgenda(){ openEventPicker("new"); }
+function openEventPicker(mode){
+  closeModal();
+  const bg=document.createElement("div"); bg.className="modalbg"; bg.id="modalbg";
+  bg.innerHTML=`<div class="modal" style="width:600px"><h3>${mode==="new"?"New agenda — which event is it for?":"Link this agenda to a Dispatch event"}</h3>
+    <input class="mini" id="evQ" placeholder="Search: name, city or E-code" style="width:100%;margin-bottom:10px">
+    <div id="evList" class="evlist"><div class="evsub">Loading the Dispatch events…</div></div>
+    <div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <button class="btn ghost" id="evType">${mode==="new"?"✍️ Not in the Dispatch — I'll type it myself":"Cancel"}</button>
+      ${mode==="new"?`<button class="btn ghost" id="evCancel">Cancel</button>`:""}</div></div>`;
+  document.body.appendChild(bg);
+  bg.onclick=e=>{ if(e.target===bg) closeModal(); };
+  $("evType").onclick=()=>{ closeModal(); if(mode==="new"){ newProject(); S.eventDismissed=true; autosave(); render(); } };
+  if($("evCancel")) $("evCancel").onclick=closeModal;
+  const pick=ev=>{ closeModal(); if(mode==="new"){ newProject(); applyEvent(ev,true); } else applyEvent(ev,false); view={type:"overview"}; render(); autosave(); toast((mode==="new"?"New agenda for ":"Linked to ")+evCode(ev)+" · "+ev.name); };
+  loadDcEvents().then(list=>{
+    const box=$("evList"); if(!box) return;
+    if(!list){ box.innerHTML=`<div class="evsub">${esc(dcEventsErr)}</div>`; return; }
+    const paint=()=>{ const qv=fold($("evQ").value).trim();
+      const hit=list.filter(e=>!qv || fold(e.name+" "+(e.city||"")+" "+(e.ecode||"")+" "+e.date).indexOf(qv)>=0);
+      const up=hit.filter(e=>!evIsPast(e)).sort((a,b)=>a.date.localeCompare(b.date)), past=hit.filter(evIsPast).sort((a,b)=>b.date.localeCompare(a.date));
+      const row=e=>{ const th=THEMES[themeForEvent(e)]||THEMES.ata, br=BROCHURES.map[evCode(e)];
+        return `<div class="evrow" data-ev="${esc(String(e.id))}"><span class="evbar" style="background:${th.hex}"></span><span class="evcode">${esc(evCode(e)||"—")}</span><b>${esc(e.name)}</b><span class="evsub">${esc(evRange(e,"en"))}${e.city?" · "+esc(e.city):""}</span>${br?'<span class="evbr" title="Has a brochure">📘</span>':""}</div>`; };
+      box.innerHTML=(up.length?`<div class="evsec">Upcoming</div>`+up.map(row).join(""):"")+(past.length?`<div class="evsec">Past</div>`+past.map(row).join(""):"")||`<div class="evsub">Nothing matches.</div>`;
+      box.querySelectorAll("[data-ev]").forEach(r=>r.onclick=()=>pick(list.find(e=>String(e.id)===r.dataset.ev))); };
+    $("evQ").oninput=paint; paint(); $("evQ").focus();
+  });
+}
+// 🎬 Title slides: opens the Dispatch's Event Decks page for this agenda. It must run on
+// the Dispatch origin (render-API CORS + the brochure files are same-origin there).
+function slidesState(){
+  if(!S.event) return {ok:false, why:"Link this agenda to a Dispatch event first (Event details)."};
+  const ec=S.event.ecode;
+  if(!BROCHURES.known) return {ok:false, why:"Open the Agenda Builder from the Dispatch (Tools) so it knows which events have a brochure."};
+  if(!BROCHURES.map[ec]) return {ok:false, why:(ec||"This event")+" has no brochure in the Brochure Builder yet — title slides take the speakers' photos and logos from it."};
+  if(!window.agFlush) return {ok:false, why:"This agenda is only saved in this browser — open it from the Dispatch (Tools) so it is saved online."};
+  return {ok:true, why:"Title slides for "+ec+" with the brochure's photos and logos"};
+}
+function paintSlidesBtn(){ const b=$("btnTS"); if(!b) return; const st=slidesState(); b.classList.toggle("off",!st.ok); b.title=st.why; }
+async function openTitleSlides(){
+  const st=slidesState(); if(!st.ok){ toast(st.why); return; }
+  const w=window.open("about:blank","_blank");   // open now (inside the click) so no pop-up blocker
+  try{ await window.agFlush(); }catch(e){ if(w) w.close(); toast("⚠ Couldn't save online first — try again"); return; }
+  const url=DC_ORIGIN+"/event_decks.html?agenda="+encodeURIComponent(curId);
+  if(w) w.location.href=url; else location.href=url;
 }
 
 let homeTab="mine";
@@ -375,7 +532,7 @@ function renderHome(c){
     return `<div class="card" data-open="${p.id}">
       <div class="cbar" style="background:${th.hex}"></div>
       <div class="cbody">
-        <div class="cname">${esc(p.name||"Untitled event")}${p.id===curId?' <span class="cnow">· editing now</span>':''}</div>
+        <div class="cname">${d.event&&d.event.ecode?`<span class="evcode">${esc(d.event.ecode)}</span>`:""}${esc(p.name||"Untitled event")}${p.id===curId?' <span class="cnow">· editing now</span>':''}</div>
         <div class="cmeta">${langs} · ${nd} day${nd===1?"":"s"} · ${esc(th.name)}</div>
         <div class="cmeta">Updated ${fmtDate(p.updated)}</div>
       </div>
@@ -392,7 +549,7 @@ function renderHome(c){
   c.querySelectorAll("[data-open]").forEach(b=>{ if(b.tagName==="BUTTON") b.onclick=(e)=>{ e.stopPropagation(); openProjectId(b.dataset.open); }; });
   c.querySelectorAll("[data-dl]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const p=loadProjects().find(x=>x.id===b.dataset.dl); if(p) downloadJSON(p.data,p.name); });
   c.querySelectorAll("[data-del]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(confirm("Delete this agenda permanently?")) deleteProjectId(b.dataset.del); });
-  $("hNew").onclick=newProject;
+  $("hNew").onclick=startNewAgenda;
   $("hImp").onchange=e=>{ if(e.target.files[0]) importFile(e.target.files[0]); };
 }
 // ── Team library (shared OneDrive/SharePoint folder via File System Access API) ──
@@ -1158,7 +1315,8 @@ function initStatic(){
   window.addEventListener("beforeunload",()=>{ if(teamDir&&curTeamFile){ try{ teamDir.removeEntry(curTeamFile+".lock"); }catch(e){} } });
   $("btnOpen").onclick=()=>{ view={type:"home"}; render(); };
   const brand=document.querySelector("aside .brand"); if(brand){ brand.style.cursor="pointer"; brand.title="Home — all agendas"; brand.onclick=()=>{ view={type:"home"}; render(); }; }
-  $("btnNew").onclick=newProject;
+  $("btnNew").onclick=startNewAgenda;
+  $("btnTS").onclick=openTitleSlides;
   $("btnWord").onclick=exportWord; $("btnDocx").onclick=exportDocx; $("btnPdf").onclick=downloadPdf; $("btnPrint").onclick=exportPdf;
   $("btnSlides").onclick=exportSlideJson;
   document.addEventListener("click", closeMenus);

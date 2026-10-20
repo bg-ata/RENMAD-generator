@@ -86,16 +86,25 @@
     saveProjects = function(){};    // writes go through autosave/upsert instead
     scheduleTeamSync = function(){};
 
+    // data.slides = the same session list the Slides JSON button exports, so the
+    // Dispatch's Event Decks page (🎬 Title slides) never re-implements timings/speakers.
+    async function saveNow(){
+      let slides=null; try{ slides=buildSlideJson(); }catch(e){}
+      const row={ id:curId, title:(S.titleA||"Untitled event"), data:Object.assign({},S,{slides:slides}), updated_at:new Date().toISOString(), updated_by:CURRENT_EMAIL };
+      const { error } = await sb.from(TABLE).upsert(row, { onConflict:"id" });
+      if(error){ setSyncCloud("error"); toast("⚠ Couldn’t save online — check your connection"); throw error; }
+      const rec={ id:curId, name:row.title, updated:Date.now(), data:S, by:CURRENT_EMAIL };
+      const i=CLOUD.findIndex(p=>p.id===curId); if(i>=0) CLOUD[i]=rec; else CLOUD.push(rec);
+      setSyncCloud("saved");
+    }
     autosave = function(){
       clearTimeout(cloudTimer); setSyncCloud("saving");
-      cloudTimer=setTimeout(async ()=>{
-        const row={ id:curId, title:(S.titleA||"Untitled event"), data:S, updated_at:new Date().toISOString(), updated_by:CURRENT_EMAIL };
-        const { error } = await sb.from(TABLE).upsert(row, { onConflict:"id" });
-        if(error){ setSyncCloud("error"); toast("⚠ Couldn’t save online — check your connection"); return; }
-        const rec={ id:curId, name:row.title, updated:Date.now(), data:S, by:CURRENT_EMAIL };
-        const i=CLOUD.findIndex(p=>p.id===curId); if(i>=0) CLOUD[i]=rec; else CLOUD.push(rec);
-        setSyncCloud("saved");
-      }, 800);
+      cloudTimer=setTimeout(()=>{ saveNow().catch(()=>{}); }, 800);
+    };
+    window.agFlush = function(){ clearTimeout(cloudTimer); setSyncCloud("saving"); return saveNow(); };
+    window.agFetchEvents = async function(){
+      const { data, error } = await sb.from("dc_events").select("id,name,topic,city,country,date,days,kind,ecode,deleted");
+      if(error) throw error; return data||[];
     };
     newProject = function(){ S=blankState(); curId=newId(); view={type:"overview"}; render(); autosave(); toast("New agenda — give it a title in Event details"); };
     openProjectId = function(id){ const p=CLOUD.find(x=>x.id===id); if(!p) return; S=p.data; normalize(); curId=id; if(typeof closeModal==="function") closeModal(); view=(S.days&&S.days.length)?{type:"day",id:S.days[0].id}:{type:"overview"}; render(); };

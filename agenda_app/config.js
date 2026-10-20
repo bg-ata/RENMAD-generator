@@ -6,4 +6,4 @@
 // Center's PUBLIC client credentials (same as its store.js) — no secret is exposed here.
 window.DC_SUPA_URL  = "https://dxgvbufsifgowwfggvmr.supabase.co";
 window.DC_SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR4Z3ZidWZzaWZnb3d3Zmdndm1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0ODM1OTUsImV4cCI6MjA5ODA1OTU5NX0.EDMWWjMuDM0jS0d0SwzdhuW_ZnHP0T0kqwL3xc6Cw-w";
-window.DC_TOOLS_URL = "https://bg-ata.github.io/dispatch-center/tools.html";
+window.DC_TOOLS_URL = "https://dispatch.renmad.com/tool.html?id=agenda";   // the old github.io copy of the Dispatch is private (404) since Aug 2026
