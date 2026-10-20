@@ -316,6 +316,7 @@ function renderFooter(c){
   const hex=THEMES[S.themeKey].hex;
   c.innerHTML=`
     <p style="color:var(--muted);margin:0 0 14px">The logo wall and this footer show at the <b>bottom of every exported agenda</b> (PDF & Word).</p>
+    ${(()=>{ const fs=footState(); return `<div class="evlink ${fs.on?"on":""}" style="margin-bottom:14px"><div><b>${fs.on?"🏷️ Sponsors logo wall: automatic":"🏷️ Sponsors logo wall"}</b><div class="evsub">${esc(fs.why)}</div></div></div>`; })()}
     <div class="fld" style="margin-bottom:16px"><label>🏷️ Logo wall image (sponsors & partners) — make it in the image generator, then upload here. Appears just above the footer.</label>
       <div class="logobox">
         <div id="fWallThumb" style="min-width:150px">${S.wallImg?`<img src="${S.wallImg}" style="max-height:90px;max-width:360px">`:'<span style="color:var(--muted);font-size:12px">No logo wall uploaded yet</span>'}</div>
@@ -374,7 +375,7 @@ function renderOverview(c){
 // fills title, location/dates, day dates, theme and languages; those fields stay
 // editable here and each one says whether it still matches the Dispatch.
 // S.event = snapshot {id, ecode, name, topic, city, country, date, days}.
-const DC_ORIGIN="https://dispatch.renmad.com";
+const DC_ORIGIN=(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)&&new URLSearchParams(location.search).get("dc_origin"))||"https://dispatch.renmad.com";   // ?dc_origin= only for local test rigs
 // Events with a brochure in the Brochure Builder, as "E057:es-en,E058:en-it". Handed
 // over by the Dispatch's tool.html (dc_br) — github.io can't read brochures.json
 // (no CORS) — and remembered for when the app is opened in its own tab.
@@ -501,6 +502,37 @@ function slidesState(){
   if(!BROCHURES.map[ec]) return {ok:false, why:(ec||"This event")+" has no brochure in the Brochure Builder yet — title slides take the speakers' photos and logos from it."};
   if(!window.agFlush) return {ok:false, why:"This agenda is only saved in this browser — open it from the Dispatch (Tools) so it is saved online."};
   return {ok:true, why:"Title slides for "+ec+" with the brochure's photos and logos"};
+}
+// ── The event's sponsor footer on every export (Belén, 20 Oct 2026: "the latest footer
+// from the event is added automatically each time that the agenda is edited and
+// downloaded"). Built fresh at EVERY download by the Dispatch's Tools page, which frames
+// this app and holds the brochure (tool.html + brochure_live.js); never stored in S.
+// It replaces the hand-uploaded logo wall; events with no brochure keep that wall.
+let EXPORT_FOOT={};                       // side -> data URL, only while an export runs
+function wallFor(side){ return EXPORT_FOOT[side] || S.wallImg; }
+function footState(){
+  if(!S.event) return {on:false, why:"Not linked to a Dispatch event — the uploaded logo wall (if any) is used."};
+  const ec=S.event.ecode;
+  if(BROCHURES.known && !BROCHURES.map[ec]) return {on:false, why:ec+" has no brochure yet — the uploaded logo wall (if any) is used."};
+  if(window.parent===window) return {on:false, why:"Open the Agenda Builder from the Dispatch (Tools) to add "+ec+"'s sponsors logo wall automatically."};
+  return {on:true, why:"Each download adds "+ec+"'s current sponsors logo wall from the brochure (it replaces the uploaded wall)."};
+}
+let _footReq=0;
+function askFooter(ecode,lang){
+  return new Promise((res,rej)=>{ const req=++_footReq;
+    const t=setTimeout(()=>{ window.removeEventListener("message",on); rej(new Error("the Dispatch took too long")); },90000);
+    function on(e){ const m=e.data||{}; if(e.origin!==DC_ORIGIN||m.type!=="dc-footer-res"||m.req!==req) return;
+      clearTimeout(t); window.removeEventListener("message",on); m.ok?res(m.footer):rej(new Error(m.error||"failed")); }
+    window.addEventListener("message",on);
+    window.parent.postMessage({type:"dc-footer",req,ecode,lang},DC_ORIGIN); });
+}
+async function prepFooters(sides){
+  EXPORT_FOOT={}; const st=footState();
+  if(!st.on){ if(S.event && window.parent===window) toast(st.why); return; }
+  toast("Adding "+S.event.ecode+"'s logo wall from the brochure…");
+  for(const side of sides){ const lc=side==="a"?S.langA:S.langB;
+    try{ const f=await askFooter(S.event.ecode,lc); if(f&&f.dataUrl) EXPORT_FOOT[side]=f.dataUrl; else if(f&&f.note) toast(f.note); }
+    catch(e){ toast("⚠ Logo wall not added ("+(e.message||e)+") — exporting without it"); } }
 }
 function paintSlidesBtn(){ const b=$("btnTS"); if(!b) return; const st=slidesState(); b.classList.toggle("off",!st.ok); b.title=st.why; }
 async function openTitleSlides(){
@@ -1049,7 +1081,10 @@ function buildBody(side,omitFootzone){
     body+=`</section>`;
   });
   const cname=(S.contactName||"").trim(), cmail=(S.contactEmail||"").trim();
-  const wall = S.wallImg ? `<div class="wall"><img src="${S.wallImg}"></div>` : "";
+  /* the brochure's logo wall (coloured boxes, 1498 x 666 = 2.25:1) gets its own size,
+     not the 170 px cap of a one-strip uploaded wall (Word honours the width attribute) */
+  const wall = EXPORT_FOOT[side] ? `<div class="wall wall--spx"><img src="${EXPORT_FOOT[side]}" width="600"></div>`
+             : wallFor(side) ? `<div class="wall"><img src="${wallFor(side)}"></div>` : "";
   const ctaLine = cta ? `<div style="font-weight:800;font-size:13px">${ctaUrl?`<a href="${esc(ctaUrl)}" style="color:#fff;text-decoration:underline">${esc(cta)}</a>`:esc(cta)}</div>` : "";
   const mailA = cmail?`<a href="mailto:${esc(cmail)}" style="color:#fff;text-decoration:underline">${esc(cmail)}</a>`:"";
   const webA = `<a href="https://www.atainsights.com" style="color:#fff;text-decoration:underline">atainsights.com</a>`;
@@ -1090,6 +1125,7 @@ function docCSS(hex){ return `
   .wall{margin:8px 0 4px}
   .wcap{font-weight:800;font-size:12px;margin-bottom:5px}
   .wall img{max-width:100%;max-height:170px;width:auto;height:auto;display:block;margin:0 auto}
+.wall--spx img{max-height:300px;max-width:600px}
   .foot{margin-top:14px;border-top:1px solid #e6e6ea;padding-top:9px;text-align:center}
   .foot .fname{font-weight:700;color:#1C2529;font-size:11.5px}
   .foot .fsub{color:#8a9098;font-size:10px;margin-top:2px}
@@ -1145,7 +1181,7 @@ function queueNextDownload(rest){
   btn.onclick=()=>{ downloadBlob(rest[0].blob, rest[0].name); const more=rest.slice(1); bar.remove(); if(more.length) queueNextDownload(more); else toast("All files downloaded"); };
   x.onclick=()=>bar.remove();
   bar.appendChild(span); bar.appendChild(btn); bar.appendChild(x); document.body.appendChild(bar); }
-function exportWord(){ const sides=exportSides(); const files=sides.map(side=>{ const lc=side==="a"?S.langA:S.langB; return {blob:new Blob(['﻿'+buildDoc(side)],{type:"application/msword"}), name:slug(S.titleA)+"_"+lc+".doc"}; }); saveFiles(files); }
+async function exportWord(){ const sides=exportSides(); await prepFooters(sides); const files=sides.map(side=>{ const lc=side==="a"?S.langA:S.langB; return {blob:new Blob(['﻿'+buildDoc(side)],{type:"application/msword"}), name:slug(S.titleA)+"_"+lc+".doc"}; }); saveFiles(files); }
 function hexRgb(h){ h=(h||"#000000").replace("#",""); if(h.length===3) h=h.split("").map(c=>c+c).join(""); return [parseInt(h.slice(0,2),16)||0,parseInt(h.slice(2,4),16)||0,parseInt(h.slice(4,6),16)||0]; }
 function pdfFooter(pdf,pw,ph,rgb,cta,url,cname,cmail){
   const ml=6, w=pw-2*ml; const hasC=!!(cname||cmail);
@@ -1205,7 +1241,7 @@ async function buildDocxBlob(side){
   const L=lab(side==="a"?S.langA:S.langB);
   let logoU8=null,logoDim=null,wallU8=null,wallDim=null;
   const logoSrc=headerLogo(); if(logoSrc){ logoDim=await loadImgDims(logoSrc); if(logoDim) logoU8=dataUrlToU8(logoSrc); }
-  if(S.wallImg){ wallDim=await loadImgDims(S.wallImg); if(wallDim) wallU8=dataUrlToU8(S.wallImg); }
+  const wallSrc=wallFor(side); if(wallSrc){ wallDim=await loadImgDims(wallSrc); if(wallDim) wallU8=dataUrlToU8(wallSrc); }
   const kids=[];
   const T=side==="a"?S.titleA:(S.titleB||S.titleA); const loc=side==="a"?S.locA:(S.locB||S.locA);
   const titlePs=[ new D.Paragraph({children:[new D.TextRun({text:T||"Event agenda",bold:true,size:40,color:"1C2529",font:"Montserrat"})]}) ];
@@ -1221,7 +1257,8 @@ async function buildDocxBlob(side){
     day.tracks.forEach(track=>{ if(day.tracks.length>1){ const nm=side==="a"?track.na:(track.nb||track.na); if(nm) kids.push(new D.Paragraph({shading:{type:D.ShadingType.CLEAR,fill:hex,color:"auto"},spacing:{before:80,after:30},children:[new D.TextRun({text:" "+nm+" ",bold:true,color:"FFFFFF",size:22,font:"Montserrat"})]})); }
       kids.push(docxTable(day,track,side,hex,L)); });
   }
-  if(wallU8){ let ww=640, wh=Math.round(ww*wallDim.h/wallDim.w); if(wh>165){ wh=165; ww=Math.round(wh*wallDim.w/wallDim.h); } kids.push(new D.Paragraph({spacing:{before:170,after:0}, alignment:D.AlignmentType.CENTER, keepLines:true, border:{top:{style:D.BorderStyle.SINGLE,size:6,color:hex,space:8}}, children:[ new D.ImageRun({data:wallU8,transformation:{width:ww,height:Math.max(1,wh)}}) ]})); }
+  if(wallU8){ const cap=EXPORT_FOOT[side]?300:165;   // brochure logo wall (2.25:1) vs a one-strip uploaded wall
+    let ww=EXPORT_FOOT[side]?600:640, wh=Math.round(ww*wallDim.h/wallDim.w); if(wh>cap){ wh=cap; ww=Math.round(wh*wallDim.w/wallDim.h); } kids.push(new D.Paragraph({spacing:{before:170,after:0}, alignment:D.AlignmentType.CENTER, keepLines:true, border:{top:{style:D.BorderStyle.SINGLE,size:6,color:hex,space:8}}, children:[ new D.ImageRun({data:wallU8,transformation:{width:ww,height:Math.max(1,wh)}}) ]})); }
   // footer band (repeats on every page) — CTA + contact inside one colour strip, with links
   const cta=((side==="a"?S.ctaA:(S.ctaB||S.ctaA))||"").trim(); const url=((side==="a"?S.ctaUrlA:(S.ctaUrlB||S.ctaUrlA))||"").trim();
   const cname=(S.contactName||"").trim(), cmail=(S.contactEmail||"").trim();
@@ -1238,7 +1275,7 @@ async function buildDocxBlob(side){
 }
 async function exportDocx(){
   if(typeof docx==="undefined"){ toast("Need internet for .docx — using .doc instead"); exportWord(); return; }
-  try{ toast("Building .docx…"); const sides=exportSides(); const files=[];
+  try{ const sides=exportSides(); await prepFooters(sides); toast("Building .docx…"); const files=[];
     for(const side of sides){ const blob=await buildDocxBlob(side); files.push({blob, name: slug(S.titleA||"agenda")+"_"+(side==="a"?S.langA:S.langB)+".docx"}); }
     saveFiles(files); }catch(e){ toast(".docx failed: "+(e.message||e)); }
 }
@@ -1273,7 +1310,7 @@ function exportSlideJson(){
 }
 async function downloadPdf(){
   if(typeof html2pdf==="undefined"){ toast("Need internet to build the PDF file — opening Print instead."); exportPdf(); return; }
-  const sides=exportSides(); const files=[];
+  const sides=exportSides(); const files=[]; await prepFooters(sides);
   for(const side of sides){ const lc=side==="a"?S.langA:S.langB; const hex=THEMES[S.themeKey].hex;
     const overlay=document.createElement("div");
     overlay.style.cssText="position:fixed;inset:0;background:#fff;z-index:2147483647;overflow:auto";
@@ -1290,7 +1327,7 @@ async function downloadPdf(){
       const blob=await html2pdf().set({ margin:[7,6,22,6], filename:slug(S.titleA||"agenda")+"_"+lc+".pdf", image:{type:"jpeg",quality:0.97}, html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",logging:false}, jsPDF:{unit:"mm",format:"a4",orientation:"portrait"}, pagebreak:{mode:["css","legacy"]} })
         .from(frameEl).toPdf().get("pdf").then(function(pdf){
           const n=pdf.internal.getNumberOfPages(); const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
-          const skipLast=!!S.wallImg;   // last page shows the logo wall instead of the footer
+          const skipLast=!!wallFor(side);   // last page shows the logo wall instead of the footer
           for(let i=1;i<=n;i++){ if(skipLast && i===n) continue; pdf.setPage(i); pdfFooter(pdf,pw,ph,rgb,cta,url,cname,cmail); }
           return pdf.output("blob");
         });
@@ -1300,7 +1337,7 @@ async function downloadPdf(){
   }
   saveFiles(files);
 }
-function exportPdf(){ const sides=exportSides(); let inner=""; sides.forEach((side,i)=>{ inner+=(i>0?'<div style="page-break-before:always"></div>':'')+buildBody(side); }); const hex=THEMES[S.themeKey].hex; const w=window.open("","_blank"); if(!w){ toast("Pop-up blocked — allow pop-ups or use Word"); return; } w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(S.titleA||"Agenda")}</title>${FONTLINK}<style>${docCSS(hex)}</style></head><body>${inner}</body></html>`); w.document.close(); const go=()=>{ try{ w.focus(); w.print(); }catch(e){} }; w.onload=go; setTimeout(go,650); }
+async function exportPdf(){ const sides=exportSides(); const w=window.open("","_blank"); if(!w){ toast("Pop-up blocked — allow pop-ups or use Word"); return; } await prepFooters(sides); let inner=""; sides.forEach((side,i)=>{ inner+=(i>0?'<div style="page-break-before:always"></div>':'')+buildBody(side); }); const hex=THEMES[S.themeKey].hex; w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(S.titleA||"Agenda")}</title>${FONTLINK}<style>${docCSS(hex)}</style></head><body>${inner}</body></html>`); w.document.close(); const go=()=>{ try{ w.focus(); w.print(); }catch(e){} }; w.onload=go; setTimeout(go,650); }
 
 // ── Toast / top bar ─────────────────────────────────────────────────────────
 let tt; function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>t.classList.remove("show"),2800); }
